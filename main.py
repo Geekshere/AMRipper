@@ -80,6 +80,24 @@ def install_system_packages():
               f"install git/ffmpeg/gpac/go manually if setup fails below.")
 
 
+def install_python_deps():
+    """Install Python packages not reliably available via system package
+    managers (e.g. mutagen, used for single-release tag cleanup). Best
+    effort — the app still works without it, just skips retagging."""
+    pip_cmd = [sys.executable, "-m", "pip", "install", "--user", "mutagen"]
+    try:
+        subprocess.run(pip_cmd, check=True)
+    except subprocess.CalledProcessError:
+        # Some distros (e.g. externally-managed Python) refuse --user
+        # installs outside a venv; retry allowing the override.
+        try:
+            subprocess.run(pip_cmd + ["--break-system-packages"], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"WARN: Could not install mutagen ({e}). "
+                  "Single-release folder renaming will still work, but the "
+                  "embedded album tag won't be updated to match.")
+
+
 def firstsetup():
     # --- Only escalate for the actual package install step ---
     # Everything else (downloads, extraction, git clone) runs as the
@@ -89,6 +107,7 @@ def firstsetup():
     try:
         # Step 1: Install required packages (needs root)
         install_system_packages()
+        install_python_deps()
 
         # Step 2: Download and set up Bento4
         BENTO4_URL = "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.x86_64-unknown-linux.zip"

@@ -1,5 +1,7 @@
 import subprocess
 import threading
+import re
+from pathlib import Path
 from flask import render_template, request, jsonify
 import shlex
 import yaml
@@ -7,6 +9,96 @@ import os
 import json
 import base64
 from . import app
+
+try:
+    from mutagen.mp4 import MP4
+    MUTAGEN_AVAILABLE = True
+except ImportError:
+    MUTAGEN_AVAILABLE = False
+
+# Environment passed to downloader/wrapper subprocesses. NO_COLOR/CLICOLOR/
+# TERM=dumb tell the Go tool's color library (fatih/color) and any other
+# TTY-aware output to skip ANSI escape codes, since they're only meant for
+# a real terminal and otherwise show up as garbage in the web UI's log view.
+SUBPROCESS_ENV = {**os.environ, "NO_COLOR": "1", "CLICOLOR": "0", "TERM": "dumb"}
+
+# Matches ANSI escape sequences (colors, cursor movement, etc.) as a
+# belt-and-suspenders cleanup in case something still emits them despite
+# NO_COLOR/TERM=dumb.
+ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+def strip_ansi(text):
+    return ANSI_ESCAPE_RE.sub('', text)
+
+
+# Apple Music tags single-track releases with an album name ending in
+# " - Single" (sometimes " - EP" too). This strips that suffix from both
+# the download folder name and the embedded album tag after a successful
+# download, so libraries don't end up full of "Song Name - Single" folders.
+SINGLE_SUFFIX_RE = re.compile(r'\s*-\s*(Single|EP)\s*$', re.IGNORECASE)
+
+
+def _get_save_folders(amd_dir):
+    """Read the configured save folders from config.yaml (best effort)."""
+    config_path = os.path.join(amd_dir, "config.yaml")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f) or {}
+    except Exception:
+        return []
+    keys = ("alac-save-folder", "atmos-save-folder", "aac-save-folder")
+    folders = []
+    for key in keys:
+        folder = config.get(key)
+        if folder:
+            folders.append(os.path.join(amd_dir, folder))
+    return folders
+
+
+def clean_single_release_names(amd_dir, log_target=None):
+    """Rename album folders ending in '- Single'/'- EP' and fix the
+    matching album tag inside any .m4a/.mp4 files in them. Best effort —
+    logs and continues past problems rather than failing the download."""
+    for base_folder in _get_save_folders(amd_dir):
+        base_path = Path(base_folder)
+        if not base_path.exists():
+            continue
+
+        for dirpath, dirnames, _ in os.walk(base_path):
+            for dirname in list(dirnames):
+                match = SINGLE_SUFFIX_RE.search(dirname)
+                if not match:
+                    continue
+
+                old_path = Path(dirpath) / dirname
+                new_name = SINGLE_SUFFIX_RE.sub('', dirname).strip()
+                if not new_name:
+                    continue
+                new_path = Path(dirpath) / new_name
+
+                if MUTAGEN_AVAILABLE:
+                    for audio_file in old_path.glob("*.m4a"):
+                        try:
+                            tags = MP4(audio_file)
+                            if "\xa9alb" in tags:
+                                tags["\xa9alb"] = [SINGLE_SUFFIX_RE.sub('', tags["\xa9alb"][0]).strip()]
+                                tags.save()
+                        except Exception as e:
+                            if log_target is not None:
+                                log_target.append(f"WARN: Could not update album tag for {audio_file.name}: {e}")
+
+                try:
+                    if new_path.exists():
+                        if log_target is not None:
+                            log_target.append(f"WARN: Skipped rename, target already exists: {new_path.name}")
+                        continue
+                    old_path.rename(new_path)
+                    if log_target is not None:
+                        log_target.append(f"Renamed '{dirname}' -> '{new_name}'")
+                except Exception as e:
+                    if log_target is not None:
+                        log_target.append(f"WARN: Could not rename '{dirname}': {e}")
 
 wrapper_process = None
 wrapper_running = False
@@ -20,7 +112,7 @@ def stream_download_logs(pipe, target_list):
     
     try:
         for line in iter(pipe.readline, ''):
-            line = line.strip()
+            line = strip_ansi(line).strip()
             if line:
                 target_list.append(line)
 
@@ -32,6 +124,12 @@ def stream_download_logs(pipe, target_list):
             exit_code = download_process.poll()
             if exit_code == 0:
                 target_list.append("Download completed successfully.")
+                try:
+                    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    amd_dir = os.path.join(script_dir, "apple-music-downloader")
+                    clean_single_release_names(amd_dir, log_target=target_list)
+                except Exception as e:
+                    target_list.append(f"WARN: Single-release cleanup failed: {e}")
             else:
                 target_list.append(f"Download failed with exit code: {exit_code}")
             download_running = False
@@ -44,7 +142,7 @@ def stream_wrapper_logs(pipe, target_list, email=None, password=None, auto_login
     
     try:
         for line in iter(pipe.readline, ''):
-            line = line.strip()
+            line = strip_ansi(line).strip()
             if line:
                 target_list.append(line)
 
@@ -181,7 +279,8 @@ def start_wrapper_login(email, password, auto_login=False):
             stdin=subprocess.PIPE,
             bufsize=1,
             universal_newlines=True,
-            cwd=wrapper_dir  # Run from wrapper directory
+            cwd=wrapper_dir,  # Run from wrapper directory
+            env=SUBPROCESS_ENV
         )
         
         # Don't set wrapper_running=True yet, wait for the success message
@@ -305,7 +404,8 @@ def download():
             stdin=subprocess.DEVNULL,
             bufsize=1,
             universal_newlines=True,
-            cwd=amd_dir  # Run from apple-music-downloader directory
+            cwd=amd_dir,  # Run from apple-music-downloader directory
+            env=SUBPROCESS_ENV
         )
         
         download_running = True
