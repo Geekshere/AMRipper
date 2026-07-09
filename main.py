@@ -18,10 +18,10 @@ def firstsetup():
 
     try:
         # Step 1: Install required packages
-        subprocess.run(
-            ["apt-get", "install", "-y", "git", "ffmpeg", "gpac", "golang-go", "wget","python3-flask","python3-yaml"],
-            check=True
-        )
+        # subprocess.run(
+        #     ["apt-get", "install", "-y", "git", "ffmpeg", "gpac", "golang-go", "wget","python3-flask","python3-yaml"],
+        #     check=True
+        # )
         print("Packages installed successfully.")
 
         # Step 2: Download and set up Bento4
@@ -30,7 +30,7 @@ def firstsetup():
 
         if not BENTO4_DIR.exists():
             print(f"Downloading Bento4 from {BENTO4_URL}...")
-            urllib.request.urlretrieve(BENTO4_URL, zip_path)
+            # urllib.request.urlretrieve(BENTO4_URL, zip_path)
             print("Extracting Bento4...")
 
             BENTO4_DIR.mkdir(parents=True, exist_ok=True)
@@ -149,7 +149,7 @@ def firstsetup():
 
         if not WRAPPER_DIR.exists():
             print(f"Downloading wrapper from {WRAPPER_URL}...")
-            urllib.request.urlretrieve(WRAPPER_URL, wrapper_zip)
+            # urllib.request.urlretrieve(WRAPPER_URL, wrapper_zip)
             print("Extracting wrapper...")
 
             WRAPPER_DIR.mkdir(parents=True, exist_ok=True)
