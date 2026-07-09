@@ -98,6 +98,19 @@ def install_python_deps():
                   "embedded album tag won't be updated to match.")
 
 
+def download_file(url, dest_path):
+    """Download a file with a browser-like User-Agent. Some hosts (e.g.
+    bok.net, which serves Bento4) return 403 Forbidden for the default
+    urllib User-Agent string, so a plain urlretrieve() fails there."""
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+    )
+    with urllib.request.urlopen(req) as response, open(dest_path, "wb") as out_file:
+        shutil.copyfileobj(response, out_file)
+
+
 def firstsetup():
     # --- Only escalate for the actual package install step ---
     # Everything else (downloads, extraction, git clone) runs as the
@@ -115,7 +128,7 @@ def firstsetup():
 
         if not BENTO4_DIR.exists():
             print(f"Downloading Bento4 from {BENTO4_URL}...")
-            urllib.request.urlretrieve(BENTO4_URL, zip_path)
+            download_file(BENTO4_URL, zip_path)
             print("Extracting Bento4...")
 
             BENTO4_DIR.mkdir(parents=True, exist_ok=True)
@@ -162,7 +175,7 @@ def firstsetup():
 
         if not WRAPPER_DIR.exists():
             print(f"Downloading wrapper from {WRAPPER_URL}...")
-            urllib.request.urlretrieve(WRAPPER_URL, wrapper_zip)
+            download_file(WRAPPER_URL, wrapper_zip)
             print("Extracting wrapper...")
 
             WRAPPER_DIR.mkdir(parents=True, exist_ok=True)
@@ -201,6 +214,10 @@ def firstsetup():
 
     except subprocess.CalledProcessError as e:
         print(f"ERROR: Failed during setup: {e}")
+        sys.exit(1)
+    except (urllib.error.URLError, urllib.error.HTTPError) as e:
+        print(f"ERROR: Failed to download a required file during setup: {e}")
+        print("This is usually a network issue or the host temporarily blocking the request. Try running again.")
         sys.exit(1)
 
 def start():
