@@ -133,14 +133,20 @@ def convert_and_finalize_downloads(amd_dir, log_target=None):
     within our own control, so 'delete the M4A after' and 'tags
     actually survive' aren't in tension with each other."""
     if not MUTAGEN_AVAILABLE:
+        if log_target is not None:
+            log_target.append("NOTE: mutagen isn't installed — skipping AMRipper's own FLAC conversion entirely.")
         return
 
     try:
         config = _read_amd_config(amd_dir)
-    except Exception:
+    except Exception as e:
+        if log_target is not None:
+            log_target.append(f"WARN: Conversion skipped — could not read config.yaml: {e}")
         return
 
     if not config.get("amripper-convert-after-download", True):
+        if log_target is not None:
+            log_target.append("NOTE: amripper-convert-after-download is off — leaving files as ALAC (.m4a).")
         return
 
     target_format = (config.get("amripper-convert-format") or "flac").lower()
@@ -155,7 +161,13 @@ def convert_and_finalize_downloads(amd_dir, log_target=None):
 
     folder = Path(config.get("alac-save-folder", ""))
     if not folder.exists():
+        if log_target is not None:
+            log_target.append(f"WARN: Conversion skipped — download folder doesn't exist: {folder}")
         return
+
+    m4a_files = list(folder.rglob("*.m4a"))
+    if log_target is not None:
+        log_target.append(f"Checking for ALAC files to convert in {folder} — found {len(m4a_files)}.")
 
     text_map = {
         "\xa9nam": "title", "\xa9ART": "artist", "aART": "albumartist",
@@ -163,10 +175,12 @@ def convert_and_finalize_downloads(amd_dir, log_target=None):
         "\xa9day": "date", "cprt": "copyright", "\xa9lyr": "lyrics",
     }
 
-    for m4a_path in folder.rglob("*.m4a"):
+    for m4a_path in m4a_files:
         flac_path = m4a_path.with_suffix(".flac")
-        if flac_path.exists():
-            continue  # already converted in a previous run
+        # No "skip if flac already exists" check — ffmpeg already has -y
+        # (force overwrite), and skipping based on existence alone risks
+        # silently leaving a stale/broken FLAC in place from before this
+        # fix (or from a failed prior attempt) instead of replacing it.
 
         try:
             result = subprocess.run(
