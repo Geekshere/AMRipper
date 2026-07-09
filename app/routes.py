@@ -1,6 +1,7 @@
 import subprocess
 import threading
 import re
+import signal
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -179,25 +180,34 @@ APPLE_MUSIC_URL_RE = re.compile(
 
 def _get_anonymous_apple_token():
     """Scrape the public (anonymous) MusicKit token that music.apple.com's
-    own web player uses. Cached for the life of the process; Apple rotates
-    these occasionally, so a 401/403 downstream should clear the cache and
-    retry once."""
+    own web player uses — same two-step approach the actual Go downloader
+    uses (utils/ampapi/token.go): the token isn't inline in the homepage
+    HTML, it's inside a bundled JS asset the homepage references. Cached
+    for the life of the process; Apple rotates these occasionally, so a
+    401/403 downstream should clear the cache and retry once."""
     if _ANON_TOKEN_CACHE["token"]:
         return _ANON_TOKEN_CACHE["token"]
 
-    req = urllib.request.Request(
-        "https://music.apple.com/us/browse",
-        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
-    )
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+
+    req = urllib.request.Request("https://music.apple.com", headers=headers)
     with urllib.request.urlopen(req, timeout=10) as resp:
         html = resp.read().decode('utf-8', errors='ignore')
 
-    match = re.search(r'"token"\s*:\s*"([^"]+)"', html)
-    if not match:
-        raise RuntimeError("Could not find MusicKit token on music.apple.com — Apple may have changed their page")
+    asset_match = re.search(r'/assets/index~[^/"\']+\.js', html)
+    if not asset_match:
+        raise RuntimeError("Could not find the index JS asset on music.apple.com — Apple may have changed their page")
 
-    token = match.group(1)
+    js_req = urllib.request.Request("https://music.apple.com" + asset_match.group(0), headers=headers)
+    with urllib.request.urlopen(js_req, timeout=10) as resp:
+        js_body = resp.read().decode('utf-8', errors='ignore')
+
+    token_match = re.search(r'eyJ[A-Za-z0-9\-_=]+\.[A-Za-z0-9\-_=]+\.[A-Za-z0-9\-_=]+', js_body)
+    if not token_match:
+        raise RuntimeError("Could not find a token in music.apple.com's JS bundle — Apple may have changed their page")
+
+    token = token_match.group(0)
     _ANON_TOKEN_CACHE["token"] = token
     return token
 
@@ -606,7 +616,10 @@ def download():
             bufsize=1,
             universal_newlines=True,
             cwd=amd_dir,  # Run from apple-music-downloader directory
-            env=SUBPROCESS_ENV
+            env=SUBPROCESS_ENV,
+            start_new_session=True  # own process group, so cancel can kill
+                                     # the actual compiled binary `go run`
+                                     # spawns, not just the go-run wrapper
         )
         
         download_running = True
@@ -653,6 +666,26 @@ def stop_wrapper():
         return jsonify({"status": "ok", "msg": "Wrapper stopped"})
     else:
         return jsonify({"status": "error", "msg": "Wrapper not running"})
+
+@app.route("/stop_download", methods=["POST"])
+def stop_download():
+    global download_process, downloader_logs
+
+    if download_process and download_process.poll() is None:
+        try:
+            # Kill the whole process group — `go run` spawns a separate
+            # compiled binary as a child, and terminate() on just the
+            # go-run wrapper can leave that child running as an orphan.
+            os.killpg(os.getpgid(download_process.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            download_process.terminate()
+        downloader_logs.append("Download cancelled by user")
+        # download_running is cleared by stream_download_logs' finally
+        # block once the process actually exits, which also handles
+        # restoring artist-folder-format — no need to duplicate that here.
+        return jsonify({"status": "ok", "msg": "Download cancelled"})
+    else:
+        return jsonify({"status": "error", "msg": "No download in progress"})
 
 @app.route("/settings")
 def settings():

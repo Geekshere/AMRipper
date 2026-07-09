@@ -42,8 +42,9 @@
         </div>
         
         <div id="login-form" class="mt-3 d-none">
-            <input type="email" id="email" placeholder="Email" class="form-control mb-2 w-25 mx-auto">
-            <input type="password" id="password" placeholder="Password" class="form-control mb-2 w-25 mx-auto">
+            <p class="text-muted small mb-2">Log in with your iCloud email and password — this is your Apple ID, sent directly to the wrapper running on your own machine.</p>
+            <input type="email" id="email" placeholder="iCloud Email" class="form-control mb-2 w-25 mx-auto">
+            <input type="password" id="password" placeholder="iCloud Password" class="form-control mb-2 w-25 mx-auto">
             <button id="submit-login" class="btn btn-success">Login</button>
         </div>
     </div>
@@ -65,35 +66,27 @@
         </div>
     </div>
 
+    <!-- Format Picker Modal -->
+    <div id="format-modal" class="modal-overlay d-none">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h5 class="modal-title">Choose Format</h5>
+            </div>
+            <div class="modal-body text-start">
+                <div id="format-modal-body">
+                    <p class="text-center text-muted">Checking available formats...</p>
+                </div>
+                <div class="text-center mt-3">
+                    <button id="format-modal-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Middle input area -->
     <div class="text-center mb-4">
         <input id="link-box" type="text" class="form-control form-control-lg mb-3 w-50 mx-auto"
                placeholder="Paste Apple Music link here">
-
-        <div class="mb-3">
-            <button id="check-formats-btn" class="btn btn-outline-light btn-sm">Check Available Formats</button>
-            <div id="format-results" class="mt-2"></div>
-        </div>
-
-        <div class="d-flex justify-content-center align-items-center mb-3">
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="special-audio" checked>
-                <label class="form-check-label" for="special-audio">Special Audio</label>
-            </div>
-        </div>
-        
-        <div class="d-flex justify-content-center mb-3">
-            <div id="format-options" class="settings-section p-3" style="max-width: 300px; margin: 0 auto;">
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="format" id="atmos" value="ATMOS" checked>
-                    <label class="form-check-label" for="atmos">ATMOS</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="format" id="aac" value="AAC">
-                    <label class="form-check-label" for="aac">AAC</label>
-                </div>
-            </div>
-        </div>
 
         <div class="mt-3">
             <button id="download-btn" class="btn btn-primary btn-lg" disabled>Download</button>
@@ -123,11 +116,23 @@
     <!-- Bottom logs -->
     <div class="row">
         <div class="col-md-6">
-            <h5>Downloader Logs</h5>
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h5 class="mb-0">Downloader Logs</h5>
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" id="autoscroll-downloader" checked>
+                    <label class="form-check-label small text-muted" for="autoscroll-downloader">Autoscroll</label>
+                </div>
+            </div>
             <div class="log-box" id="downloader-logs"></div>
         </div>
         <div class="col-md-6">
-            <h5>Wrapper Logs</h5>
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h5 class="mb-0">Wrapper Logs</h5>
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" id="autoscroll-wrapper" checked>
+                    <label class="form-check-label small text-muted" for="autoscroll-wrapper">Autoscroll</label>
+                </div>
+            </div>
             <div class="log-box" id="wrapper-logs"></div>
         </div>
     </div>
@@ -211,11 +216,25 @@ document.getElementById("submit-login").addEventListener("click", () => {
         });
 });
 
+let isDownloading = false;
+
+const FORMAT_DEFS = [
+    {key: "Lossless (ALAC)", label: "ALAC / Lossless", specialAudio: false, format: null},
+    {key: "Dolby Atmos", label: "Dolby Atmos", specialAudio: true, format: "ATMOS"},
+    {key: "AAC", label: "AAC", specialAudio: true, format: "AAC"},
+];
+
 document.getElementById("download-btn").addEventListener("click", () => {
+    if (isDownloading) {
+        axios.post("/stop_download").then(res => {
+            const logs = document.getElementById("downloader-logs");
+            logs.innerHTML += `<div class="${res.data.status === 'ok' ? 'log-plain' : 'log-err'}">> ${res.data.msg}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        });
+        return;
+    }
+
     const link = document.getElementById("link-box").value;
-    const format = document.querySelector("input[name='format']:checked")?.value || "ATMOS";
-    const specialAudio = document.getElementById("special-audio").checked;
-    
     if (!link.trim()) {
         const logs = document.getElementById("downloader-logs");
         logs.innerHTML += `<div class="log-err">> Please enter a valid Apple Music URL</div>`;
@@ -223,9 +242,71 @@ document.getElementById("download-btn").addEventListener("click", () => {
         return;
     }
 
+    openFormatModal(link);
+});
+
+function openFormatModal(link) {
+    const modal = document.getElementById("format-modal");
+    const body = document.getElementById("format-modal-body");
+    modal.classList.remove("d-none");
+    body.innerHTML = `<p class="text-center text-muted">Checking available formats...</p>`;
+
+    axios.post("/check_formats", new URLSearchParams({link: link}))
+        .then(res => {
+            renderFormatOptions(link, res.data.status === "ok" ? res.data.formats : null, res.data.status === "ok" ? null : res.data.msg);
+        })
+        .catch(() => {
+            renderFormatOptions(link, null, "request failed");
+        });
+}
+
+function renderFormatOptions(link, formats, errorMsg) {
+    const body = document.getElementById("format-modal-body");
+    let html = "";
+
+    if (errorMsg) {
+        html += `<p class="text-muted small text-center mb-3">Couldn't verify availability (${errorMsg}) — all options shown, but availability is unknown.</p>`;
+    }
+
+    html += FORMAT_DEFS.map(def => {
+        const available = formats ? !!formats[def.key] : null;
+        let noteHtml = "";
+        if (available === true) {
+            noteHtml = `<span class="format-badge available">available</span>`;
+        } else if (available === false) {
+            noteHtml = `<span class="format-badge unavailable">not detected</span>`;
+        }
+        return `
+            <div class="d-flex justify-content-between align-items-center py-2" style="border-bottom: 1px solid var(--border);">
+                <div>${def.label} ${noteHtml}</div>
+                <button class="btn btn-primary btn-sm format-pick-btn" data-format="${def.format || ''}" data-special="${def.specialAudio}">Download</button>
+            </div>`;
+    }).join("");
+
+    body.innerHTML = html;
+
+    body.querySelectorAll(".format-pick-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            startDownload(link, btn.dataset.format, btn.dataset.special === "true");
+        });
+    });
+}
+
+function closeFormatModal() {
+    document.getElementById("format-modal").classList.add("d-none");
+}
+
+document.getElementById("format-modal-cancel").addEventListener("click", closeFormatModal);
+document.getElementById("format-modal").addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeFormatModal();
+});
+
+function startDownload(link, format, specialAudio) {
+    closeFormatModal();
+
     const formData = new URLSearchParams({
         link: link,
-        format: format,
+        format: format || "",
         special_audio: specialAudio
     });
 
@@ -234,49 +315,17 @@ document.getElementById("download-btn").addEventListener("click", () => {
             const logs = document.getElementById("downloader-logs");
             if (res.data.status === "ok") {
                 logs.innerHTML += `<div class="log-ok">> ${res.data.msg}</div>`;
-                // Disable download button while download is running
-                document.getElementById("download-btn").disabled = true;
-                document.getElementById("download-btn").textContent = "Downloading...";
             } else {
                 logs.innerHTML += `<div class="log-err">> ${res.data.msg}</div>`;
             }
             logs.scrollTop = logs.scrollHeight;
         })
-        .catch(err => {
+        .catch(() => {
             const logs = document.getElementById("downloader-logs");
             logs.innerHTML += `<div class="log-err">> Failed to start download</div>`;
             logs.scrollTop = logs.scrollHeight;
         });
-});
-
-// Check Available Formats (experimental)
-document.getElementById("check-formats-btn").addEventListener("click", () => {
-    const link = document.getElementById("link-box").value;
-    const resultsBox = document.getElementById("format-results");
-
-    if (!link.trim()) {
-        resultsBox.innerHTML = `<small class="text-muted">Paste a song or album link first.</small>`;
-        return;
-    }
-
-    resultsBox.innerHTML = `<small class="text-muted">Checking...</small>`;
-
-    axios.post("/check_formats", new URLSearchParams({link: link}))
-        .then(res => {
-            if (res.data.status === "ok") {
-                const formats = res.data.formats;
-                const badges = Object.entries(formats).map(([name, available]) => {
-                    return `<span class="format-badge ${available ? 'available' : 'unavailable'}">${name}</span>`;
-                }).join("");
-                resultsBox.innerHTML = badges + `<div><small class="text-muted">Experimental — verify against the actual download log.</small></div>`;
-            } else {
-                resultsBox.innerHTML = `<small class="text-muted">Couldn't determine formats: ${res.data.msg}</small>`;
-            }
-        })
-        .catch(() => {
-            resultsBox.innerHTML = `<small class="text-muted">Couldn't determine formats (request failed).</small>`;
-        });
-});
+}
 
 document.getElementById("stop-wrapper-btn").addEventListener("click", () => {
     axios.post("/stop_wrapper")
@@ -314,6 +363,8 @@ function updateLogs() {
         const wrapperBox = document.getElementById("wrapper-logs");
         const downloaderBox = document.getElementById("downloader-logs");
         const downloadBtn = document.getElementById("download-btn");
+        const autoscrollWrapper = document.getElementById("autoscroll-wrapper").checked;
+        const autoscrollDownloader = document.getElementById("autoscroll-downloader").checked;
 
         // Only update if there are actually logs to show
         if (res.data.wrapper.length > 0) {
@@ -326,7 +377,7 @@ function updateLogs() {
                     return `<div class="log-plain">> ${l}</div>`;
                 }
             }).join("");
-            wrapperBox.scrollTop = wrapperBox.scrollHeight;
+            if (autoscrollWrapper) wrapperBox.scrollTop = wrapperBox.scrollHeight;
         }
         
         if (res.data.downloader.length > 0) {
@@ -341,16 +392,24 @@ function updateLogs() {
                     return `<div class="log-plain">> ${l}</div>`;
                 }
             }).join("");
-            downloaderBox.scrollTop = downloaderBox.scrollHeight;
+            if (autoscrollDownloader) downloaderBox.scrollTop = downloaderBox.scrollHeight;
         }
         
         // Update download button state based on download status
-        if (res.data.download_running) {
-            downloadBtn.disabled = true;
-            downloadBtn.textContent = "Downloading...";
+        isDownloading = !!res.data.download_running;
+        if (isDownloading) {
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = "Cancel Download";
+            downloadBtn.classList.remove("btn-primary");
+            downloadBtn.classList.add("btn-danger");
         } else {
+            downloadBtn.classList.remove("btn-danger");
+            downloadBtn.classList.add("btn-primary");
             if (res.data.wrapper_running) {
                 downloadBtn.disabled = false;
+                downloadBtn.textContent = "Download";
+            } else {
+                downloadBtn.disabled = true;
                 downloadBtn.textContent = "Download";
             }
         }
@@ -402,20 +461,6 @@ function loadDownloadFolders() {
 
 // Load download folders on page load
 loadDownloadFolders();
-
-// Handle Special Audio checkbox toggle
-document.getElementById('special-audio').addEventListener('change', function() {
-    const formatOptions = document.getElementById('format-options');
-    const radioButtons = formatOptions.querySelectorAll('input[type="radio"]');
-    
-    if (this.checked) {
-        formatOptions.style.opacity = '1';
-        radioButtons.forEach(radio => radio.disabled = false);
-    } else {
-        formatOptions.style.opacity = '0.5';
-        radioButtons.forEach(radio => radio.disabled = true);
-    }
-});
 
 // 2FA Modal Functionality
 function show2FAModal() {
