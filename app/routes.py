@@ -15,6 +15,7 @@ from . import app
 
 try:
     from mutagen.mp4 import MP4
+    from mutagen.flac import FLAC
     MUTAGEN_AVAILABLE = True
 except ImportError:
     MUTAGEN_AVAILABLE = False
@@ -104,6 +105,58 @@ def clean_single_release_names(amd_dir, log_target=None):
                         log_target.append(f"WARN: Could not rename '{dirname}': {e}")
 
 
+def verify_tags_on_latest_download(amd_dir, log_target=None):
+    """Check the actual tags on whatever file was most recently written to
+    the download folder, and report a plain summary in the download log.
+    This exists because 'no tags applied' has been hard to pin down
+    without a concrete before/after: this makes each download report,
+    in AMRipper's own log, exactly what ended up embedded — instead of
+    relying on kid3 or another external tool that may or may not read
+    M4A/FLAC tags correctly itself."""
+    if not MUTAGEN_AVAILABLE:
+        if log_target is not None:
+            log_target.append("NOTE: mutagen isn't installed, so tags can't be auto-verified here. "
+                               "Check manually with: ffprobe -show_entries format_tags <file>")
+        return
+
+    try:
+        config = _read_amd_config(amd_dir)
+    except Exception:
+        return
+
+    folder = Path(config.get("alac-save-folder", ""))
+    if not folder.exists():
+        return
+
+    audio_files = [p for p in folder.rglob("*") if p.suffix.lower() in (".m4a", ".flac") and p.is_file()]
+    if not audio_files:
+        return
+
+    latest = max(audio_files, key=lambda p: p.stat().st_mtime)
+
+    try:
+        if latest.suffix.lower() == ".m4a":
+            tags = MP4(latest)
+            title = tags.get("\xa9nam", ["(missing)"])[0]
+            artist = tags.get("\xa9ART", ["(missing)"])[0]
+            album = tags.get("\xa9alb", ["(missing)"])[0]
+        else:
+            tags = FLAC(latest)
+            title = tags.get("title", ["(missing)"])[0]
+            artist = tags.get("artist", ["(missing)"])[0]
+            album = tags.get("album", ["(missing)"])[0]
+
+        if title == "(missing)" and artist == "(missing)" and album == "(missing)":
+            if log_target is not None:
+                log_target.append(f"WARN: No tags found on {latest.name} — title/artist/album all missing.")
+        else:
+            if log_target is not None:
+                log_target.append(f"Tag check on {latest.name}: title=\"{title}\", artist=\"{artist}\", album=\"{album}\"")
+    except Exception as e:
+        if log_target is not None:
+            log_target.append(f"WARN: Could not read tags from {latest.name} to verify: {e}")
+
+
 # --- Per-download artist-folder toggle ---
 # artist-folder-format in config.yaml is a single global setting, applied
 # to every download regardless of what kind of link you gave it. That
@@ -137,7 +190,11 @@ def set_artist_folder_for_download(amd_dir, is_artist_url):
     _artist_folder_backup["active"] = True
 
     if is_artist_url:
-        config["artist-folder-format"] = _artist_folder_backup["value"] or "{ArtistName}"
+        # Always force a real artist-folder value for artist/discography
+        # downloads — deterministic, rather than depending on whatever
+        # the backed-up value happened to be (which could itself be
+        # empty in some edge case, silently skipping the artist folder).
+        config["artist-folder-format"] = "{ArtistName}"
     else:
         config["artist-folder-format"] = ""
 
@@ -320,6 +377,10 @@ def stream_download_logs(pipe, target_list):
                     clean_single_release_names(amd_dir, log_target=target_list)
                 except Exception as e:
                     target_list.append(f"WARN: Single-release cleanup failed: {e}")
+                try:
+                    verify_tags_on_latest_download(amd_dir, log_target=target_list)
+                except Exception as e:
+                    target_list.append(f"WARN: Tag verification failed: {e}")
             else:
                 target_list.append(f"Download failed with exit code: {exit_code}")
             download_running = False

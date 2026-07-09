@@ -1,127 +1,120 @@
 # AMRipper
 
-A simple web interface for the Apple Music Downloader, making it easier to download your favorite tracks with a user-friendly GUI.
+A simple web interface for downloading your favorite tracks from Apple Music, no command line needed.
 
-## 🎵 About
+## About
 
-AMRipper started as a fork of [lalit22km/alac-rip](https://github.com/lalit22km/alac-rip) and has since diverged into its own standalone project — fixed up, hardened, and extended. It's a humble web interface wrapper built around the excellent work of other developers in the Apple Music downloading community, providing a clean, browser-based UI to interact with the powerful Apple Music Downloader tools without needing to touch a command line.
+AMRipper started as a fork of [lalit22km/alac-rip](https://github.com/lalit22km/alac-rip) and has since grown into its own standalone project: fixed up, hardened, and simplified. It's a humble web interface wrapper built around the work of other developers in the Apple Music downloading community. It gives you a clean, browser-based way to interact with the powerful Apple Music Downloader tools instead of typing commands.
 
 **This project would not exist without the work of:**
-- **[lalit22km/alac-rip](https://github.com/lalit22km/alac-rip)** - The original project this UI is based on
-- **[zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)** - The core Go-based Apple Music downloader that powers all the downloading functionality
-- **[WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)** - The authentication wrapper that handles Apple Music login and session management
+- **[lalit22km/alac-rip](https://github.com/lalit22km/alac-rip)**, the original project this UI is based on
+- **[zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)**, the core Go-based Apple Music downloader that does all the actual downloading
+- **[WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)**, the authentication wrapper that handles Apple Music login and session management
 
-All credit for the actual downloading capabilities goes to these original creators — AMRipper is a convenience layer and bugfix pass on top of their tools.
+All credit for the actual downloading capabilities goes to these original creators. AMRipper is a convenience layer and bugfix pass on top of their tools.
 
-## ✨ Features
+## Features
 
-- **🌐 Web-based Interface**: Clean, modern web UI accessible from any browser
-- **🔐 Auto-Login**: Save credentials for automatic login on startup
-- **🎵 Multiple Formats**: Support for ATMOS, AAC, and standard downloads
-- **🏷️ Automatic Tagging**: Artist, album, title, track/disc number, track/disc total, composer, genre, lyrics, and cover art are embedded automatically on every download
-- **🧹 Clean Single Naming**: Strips the trailing "- Single" Apple Music appends to single-track releases, in both folder names and the embedded album tag
-- **📊 Real-time Logs**: Live streaming of download and wrapper status, without debug spam or raw ANSI escape codes cluttering the terminal view
-- **🐧 Distro-Agnostic Setup**: Detects and uses whichever of apt/dnf/zypper/pacman is available, rather than assuming Debian/Ubuntu
-- **👤 No Full-Root Requirement**: Only the system package install step elevates privileges; everything else runs as your own user so downloaded files aren't left root-owned
-- **🎯 Artist Discography Downloads**: Artist URLs automatically grab the full discography instead of hanging on a terminal prompt the web server can't answer
-- **⚙️ Settings Management**: Easy configuration of all downloader options via web interface
-- **📱 Responsive Design**: Works on desktop and mobile browsers
+- Clean, modern web UI accessible from any browser
+- Save credentials for automatic login on startup
+- ALAC (lossless) downloads, converted to FLAC automatically after downloading
+- Full metadata tagging on every download: title, artist, album, track/disc numbers, composer, genre, lyrics, and cover art
+- Strips the trailing "- Single" that Apple appends to single-track releases, in both the folder name and the album tag
+- Live log streaming without debug spam or raw terminal escape codes cluttering the view
+- Works across distros: detects and uses whichever of apt, dnf, zypper, or pacman is available
+- Only the one-time system package install needs elevated privileges; everything else runs as your own user, so downloaded files aren't left root-owned
+- Artist URLs automatically grab the full discography and organize it into an artist folder, instead of hanging on a terminal prompt the web server can't answer
+- A settings page for the options you'd actually want to change, with the rarely-touched ones tucked away in an Advanced section
 
-## 🚀 Quick Start
+## Platform Support
 
-### Platform Support
+Linux only, for now. `main.py` shells out to distro package managers, uses Unix-specific APIs, and downloads Linux binaries for Bento4 and the wrapper, none of which work on Windows or macOS as they are.
 
-**Linux only, currently.** `main.py` shells out to distro package managers (apt/dnf/zypper/pacman), uses Unix-specific APIs (`os.geteuid()`, `:`-separated PATH, symlinks, process groups), and downloads Linux binaries for Bento4 and the wrapper — none of which work on Windows or macOS as-is.
+WSL (Windows Subsystem for Linux) should work fine, since it's a real Linux environment underneath. That's effectively how this already gets used on Windows today.
 
-- **WSL (Windows Subsystem for Linux)** should work, since it's a real Linux environment underneath — this is effectively how it already gets used on Windows today.
-- **Native Windows or macOS support isn't implemented.** It's not a small change — the wrapper and Bento4 binaries would need Windows/macOS builds (the wrapper project does have some non-Linux options, but they're not wired into this setup script), and most of `main.py`'s setup logic would need platform branches. If you want AMRipper on native Windows, [nawf-dev/AM-DL](https://github.com/nawf-dev/AM-DL) is a separate, Windows-native tool built around the same wrapper backend. Contributions adding real native support here are welcome, but it's not something currently planned.
+Native Windows or macOS support isn't implemented, and it's not a small change: the wrapper and Bento4 binaries would need Windows/macOS builds, and most of `main.py`'s setup logic would need platform-specific branches. If you want something similar on native Windows, [nawf-dev/AM-DL](https://github.com/nawf-dev/AM-DL) is a separate tool built around the same wrapper backend. Contributions adding real native support here are welcome, but it isn't something currently planned.
+
+## Quick Start
 
 ### Prerequisites
 
-- **Linux environment** (also works on WSL)
-- **sudo access** (only needed for the one-time system package install)
-- **Python 3.7+** with Flask
-- **Go** (for running the Apple Music Downloader)
-- **Git** (for cloning repositories)
+You need Python 3 and sudo access on a Linux machine (or WSL). That's really it; the setup script installs everything else (git, ffmpeg, gpac, Go) for you automatically.
+
+If you're not sure whether you have Python 3, open a terminal and run:
+
+```bash
+python3 --version
+```
+
+If that prints a version number, you're set. If it says "command not found," install Python first:
+
+- **Ubuntu/Debian:** `sudo apt install python3`
+- **Fedora:** `sudo dnf install python3`
+- **openSUSE:** `sudo zypper install python3`
+- **Arch:** `sudo pacman -S python`
+
+You'll also need `git` to clone this repository in the first place. If `git --version` doesn't work, install it the same way (swap `python3` for `git` in the commands above).
 
 ### Installation
 
-1. **Clone this repository:**
+1. Clone this repository:
    ```bash
    git clone https://github.com/Geekshere/AMRipper.git
    cd AMRipper
    ```
 
-2. **Run the setup:**
+2. Run the setup:
    ```bash
    python3 main.py
    ```
 
-   You do **not** need to run this as root. The first run will automatically:
-   - Detect your distro's package manager (apt/dnf/zypper/pacman) and install required system packages, prompting for `sudo` only for that step
+   You do not need to run this as root or with `sudo`. The first run will automatically:
+   - Detect your distro's package manager and install the required system packages, asking for your `sudo` password only for that one step
    - Download and set up Bento4
    - Download the wrapper tool
    - Clone the Apple Music Downloader
    - Install Python dependencies
 
-3. **Access the web interface:**
-   - Open your browser and navigate to `http://localhost:5000`
-   - The interface will be ready to use!
+3. Your browser will open automatically to `http://localhost:5000` once the server is ready. If it doesn't, just open that address yourself.
 
-## 📖 Usage
+## Usage
 
 ### First Time Setup
 
-1. **Login**: Click "Login to Wrapper" and enter your Apple Music credentials
-2. **Wait for Success**: Watch the wrapper logs until you see a login-success message
-3. **Configure Settings**: Click the ⚙️ Settings button to customize download preferences
-4. **Start Downloading**: Paste Apple Music URLs and choose your format — artist URLs will automatically download the full discography
-
-### Download Options
-
-- **Standard Download**: Uncheck "Special Audio" for basic downloads
-- **ATMOS**: Check "Special Audio" and select "ATMOS" for spatial audio
-- **AAC**: Check "Special Audio" and select "AAC" for AAC format
+1. Click "Login to Wrapper" and enter your iCloud email and password. This is your Apple ID; it's sent directly to the wrapper running on your own machine, nowhere else.
+2. Watch the wrapper logs until you see a login-success message.
+3. Click Settings if you want to change anything, most importantly your storefront (defaults to "us") and your media-user-token if you want lyrics.
+4. Paste an Apple Music URL and click Download. Artist URLs automatically grab the full discography.
 
 ### Tagging
 
-Every downloaded track is automatically tagged with title, artist, album, album artist, track/disc number and totals, composer, genre, ISRC, release date, copyright, and cover art — no extra steps needed. Single-track releases also have the trailing "- Single" suffix Apple appends stripped from both the folder name and the embedded album tag.
+Every downloaded track gets tagged automatically: title, artist, album, album artist, track/disc numbers, composer, genre, ISRC, release date, copyright, and cover art. After each download finishes, AMRipper reads the tags back off the actual file and reports what it found in the downloader log, so you can see directly whether tagging worked without needing a separate tool.
+
+Single-track releases also have the trailing "- Single" suffix Apple adds stripped from both the folder name and the album tag.
+
+### File Naming
+
+By default, albums are saved as `Artist Name - Album Name (Year)`, and tracks inside as `Track# - Song Name`. Both can be changed on the Settings page under Advanced.
 
 ### Settings
 
-The settings page allows you to configure:
-- Download folders and file naming
-- Audio quality and format preferences
-- Cover art and lyrics options
-- Advanced downloader parameters
+The settings page is split into what you'll actually want to touch (your media-user-token, storefront, download folder, and conversion settings) and an Advanced section for everything else: file naming templates, tag formatting, and low-level connection settings that most people never need to change.
 
----
-
-The application acts as a bridge between the web interface and the command-line tools, handling:
-- Authentication state management
-- Process lifecycle management
-- Configuration file editing
-- Real-time log streaming
-- Download queue management
-- Post-download folder/tag cleanup (single-suffix stripping)
-
-## ⚠️ Disclaimer
+## Disclaimer
 
 This tool is for educational purposes and personal use only. Please respect Apple's Terms of Service and only download content you have the legal right to access. The developers of this UI wrapper are not responsible for any misuse of the underlying downloading tools.
 
-**Security Note:** The setup script only requests elevated (`sudo`) privileges for the one-time system package install step. Please review the code before running it.
+**Security note:** the setup script only requests elevated (`sudo`) privileges for the one-time system package install step. Please review the code before running it.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-**Massive thanks to:**
+Massive thanks to:
 
 - **[@lalit22km](https://github.com/lalit22km)** for the original [alac-rip](https://github.com/lalit22km/alac-rip) project this is based on
 - **[@zhaarey](https://github.com/zhaarey)** for creating the [apple-music-downloader](https://github.com/zhaarey/apple-music-downloader) that makes this possible
 - **[WorldObservationLog](https://github.com/WorldObservationLog)** for maintaining the authentication [wrapper](https://github.com/WorldObservationLog/wrapper)
 - The entire Apple Music downloading community for their research and tools
 
-## 🤖 Development Notes
+## Development Notes
 
-Some of the Python/Flask code in this repo (the setup script and web UI, not the underlying downloader or wrapper tools) was written with AI coding assistance. Every change was reviewed and tested by hand before being merged — AI assistance was used for writing and iterating on code, not as a substitute for actually running it.
-
----
+Some of the Python/Flask code in this repo (the setup script and web UI, not the underlying downloader or wrapper tools) was written with AI coding assistance. Every change was reviewed and tested by hand before being merged. AI assistance was used for writing and iterating on code, not as a substitute for actually running it.

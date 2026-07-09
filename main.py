@@ -319,18 +319,21 @@ def ensure_config_yaml():
         "mv-save-folder": ["AM-DL-MV downloads", str(downloads_dir / "MV")],
     }
     naming_defaults = {
-        "album-folder-format": '{AlbumName}',
+        "album-folder-format": ['{AlbumName}'],
         # {AlbumName} isn't a supported token in song-file-format upstream
         # (only SongId/SongNumer/ArtistName/SongName/DiscNumber/
-        # TrackNumber/Quality/Tag/Codec are) — this is the closest match
-        # to "artist - album - track number - track name" without it,
-        # since the album name is already the parent folder anyway.
-        "song-file-format": '{SongNumer}. {SongName}',
+        # TrackNumber/Quality/Tag/Codec are). Also include the prior
+        # value this script generated as a migration trigger, so installs
+        # that already picked that up get moved to the new one too.
+        "song-file-format": ['{SongNumer}. {SongName}', '{ArtistName} - {TrackNumber} - {SongName}'],
     }
     naming_new_values = {
         "album-folder-format": '{ArtistName} - {AlbumName} ({ReleaseYear})',
-        "song-file-format": '{ArtistName} - {TrackNumber} - {SongName}',
+        # {SongNumer} (not {TrackNumber}) because it's the token that's
+        # actually zero-padded to 2 digits upstream — {TrackNumber} isn't.
+        "song-file-format": '{SongNumer} - {SongName}',
     }
+    storefront_defaults = ["enter your account storefront", ""]
 
     if config_path.exists():
         # Existing install (e.g. from before this fix) — migrate fields
@@ -348,8 +351,8 @@ def ensure_config_yaml():
             if config.get(key, "") in old_defaults[key]:
                 config[key] = str(downloads_dir)
                 changed = True
-        for key, old_val in naming_defaults.items():
-            if config.get(key, "") == old_val:
+        for key, old_vals in naming_defaults.items():
+            if config.get(key, "") in old_vals:
                 config[key] = naming_new_values[key]
                 changed = True
         # limit-max=200 was the upstream default; with the new naming
@@ -359,13 +362,16 @@ def ensure_config_yaml():
         if config.get("limit-max") == 200:
             config["limit-max"] = 80
             changed = True
+        if config.get("storefront", "") in storefront_defaults:
+            config["storefront"] = "us"
+            changed = True
 
         if changed:
             downloads_dir.mkdir(parents=True, exist_ok=True)
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
             print(f"Migrated config: all downloads now save to {downloads_dir}, "
-                  "naming updated to 'Artist - Album (Year)' / 'Artist - Track# - Song'.")
+                  "naming updated to 'Artist - Album (Year)' / 'Track# - Song'.")
         return
 
     if not example_path.exists():
@@ -383,13 +389,15 @@ def ensure_config_yaml():
     )
     for key in folder_keys:
         text = text.replace(f'{key}: {old_defaults[key][0]}', f'{key}: {downloads_dir}')
-    for key, old_val in naming_defaults.items():
-        text = text.replace(f'{key}: "{old_val}"', f'{key}: "{naming_new_values[key]}"')
+    for key, old_vals in naming_defaults.items():
+        text = text.replace(f'{key}: "{old_vals[0]}"', f'{key}: "{naming_new_values[key]}"')
     text = text.replace('limit-max: 200', 'limit-max: 80')
+    text = text.replace('storefront: "enter your account storefront"', 'storefront: "us"')
     config_path.write_text(text)
     downloads_dir.mkdir(parents=True, exist_ok=True)
     print(f"Created {config_path} from config.yaml.example. Downloads will save to {downloads_dir} "
-          "(auto-convert to FLAC enabled by default). Set your media-user-token and storefront in Settings before downloading.")
+          "(auto-convert to FLAC enabled by default, storefront defaulted to 'us' — change it in "
+          "Settings if your Apple Music account is registered elsewhere). Set your media-user-token in Settings before downloading.")
 
 
 def start():
