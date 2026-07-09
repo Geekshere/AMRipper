@@ -2,6 +2,7 @@ import os
 import subprocess
 import shutil
 import urllib.request
+import json
 import zipfile
 from pathlib import Path
 import sys
@@ -98,6 +99,26 @@ def install_python_deps():
                   "embedded album tag won't be updated to match.")
 
 
+def get_github_release_asset_url(repo, tag, name_contains):
+    """Query the GitHub API for a release's assets and return the
+    browser_download_url of the first asset whose filename contains
+    name_contains. Used instead of hardcoding a versioned zip filename,
+    since WorldObservationLog/wrapper publishes to a rolling release tag
+    where the actual asset filename (embeds a commit hash) changes on
+    every CI build."""
+    api_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+    req = urllib.request.Request(
+        api_url,
+        headers={"User-Agent": "AMRipper-setup", "Accept": "application/vnd.github+json"}
+    )
+    with urllib.request.urlopen(req) as response:
+        data = json.loads(response.read().decode())
+    for asset in data.get("assets", []):
+        if name_contains in asset["name"]:
+            return asset["browser_download_url"]
+    raise RuntimeError(f"No asset matching '{name_contains}' found in {repo}@{tag} release")
+
+
 def download_file(url, dest_path):
     """Download a file with a browser-like User-Agent. Some hosts (e.g.
     bok.net, which serves Bento4) return 403 Forbidden for the default
@@ -170,7 +191,14 @@ def firstsetup():
                 os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
 
         # Step 3: Download and extract wrapper
-        WRAPPER_URL = "https://github.com/WorldObservationLog/wrapper/releases/download/Wrapper.x86_64.0df45b5/Wrapper.x86_64.0df45b5.zip"
+        WRAPPER_REPO = "WorldObservationLog/wrapper"
+        WRAPPER_TAG = "wrapper.x86_64.latest"
+        try:
+            WRAPPER_URL = get_github_release_asset_url(WRAPPER_REPO, WRAPPER_TAG, "x86_64")
+        except Exception as e:
+            print(f"WARN: Could not resolve the latest wrapper release via GitHub API ({e}). "
+                  "Falling back to the stable 'latest' asset URL directly.")
+            WRAPPER_URL = f"https://github.com/{WRAPPER_REPO}/releases/download/{WRAPPER_TAG}/Wrapper.x86_64.latest.zip"
         wrapper_zip = PROJECT_DIR / "wrapper.x86_64.zip"
 
         if not WRAPPER_DIR.exists():
