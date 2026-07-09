@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <title>AMRipper - Settings</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         .settings-container {
             max-width: 1200px;
@@ -70,8 +72,8 @@
 <div class="settings-container">
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>⚙️ Settings</h2>
-        <button class="btn btn-outline-light" onclick="window.location.href='/'">← Back to Main</button>
+        <h2>Settings</h2>
+        <button class="btn btn-outline-light" onclick="window.location.href='/'">Back to Main</button>
     </div>
 
     <!-- Loading indicator -->
@@ -85,42 +87,85 @@
     <!-- Settings Form -->
     <form id="settings-form" style="display: none;">
         
-        <!-- Authentication Settings -->
+        <!-- Quick Start: the two things you actually need to set -->
         <div class="settings-section">
-            <h4>🔐 Authentication</h4>
+            <h4>Quick Start</h4>
+            <p class="text-muted mb-3">These two fields are the only things most people need to set before downloading.</p>
             <div class="row">
                 <div class="col-md-6">
-                    <label for="media-user-token" class="form-label">Media User Token</label>
+                    <label for="media-user-token" class="form-label">Media User Token <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="media-user-token" placeholder="your-media-user-token">
-                    <small class="text-muted">Required for lyrics and AAC-LC downloads</small>
+                    <small class="text-muted d-block">Required for lyrics and AAC-LC downloads.</small>
+                    <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#tokenHelp">
+                        How do I get this?
+                    </button>
+                    <div class="collapse mt-2" id="tokenHelp">
+                        <div class="card card-body bg-secondary bg-opacity-25 small">
+                            1. Open <code>music.apple.com</code> in your browser and log in.<br>
+                            2. Open DevTools (F12) → Application/Storage tab → Cookies.<br>
+                            3. Find the cookie named <code>media-user-token</code> and copy its value here.
+                        </div>
+                    </div>
                 </div>
                 <div class="col-md-6">
-                    <label for="authorization-token" class="form-label">Authorization Token</label>
-                    <input type="text" class="form-control" id="authorization-token" placeholder="your-authorization-token">
-                    <small class="text-muted">Auto-obtained, usually no need to change</small>
+                    <label for="storefront" class="form-label">Storefront <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="storefront" placeholder="e.g. us, jp, ca">
+                    <small class="text-muted d-block">2-letter country code matching your Apple Music account's region. If this doesn't match, lyrics will usually fail to download.</small>
                 </div>
             </div>
         </div>
 
-        <!-- Regional Settings -->
+        <!-- Conversion Settings -->
         <div class="settings-section">
-            <h4>🌍 Regional Settings</h4>
+            <h4>Conversion Settings</h4>
+            <p class="text-muted mb-3">By default, downloads are automatically converted to FLAC after downloading (requires ffmpeg, which setup already installed for you).</p>
             <div class="row">
+                <div class="col-md-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="convert-after-download">
+                        <label class="form-check-label" for="convert-after-download">Convert After Download</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label for="convert-format" class="form-label">Convert Format</label>
+                    <select class="form-select" id="convert-format">
+                        <option value="flac">FLAC</option>
+                        <option value="mp3">MP3</option>
+                        <option value="opus">Opus</option>
+                        <option value="wav">WAV</option>
+                        <option value="copy">Copy (no re-encode)</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="convert-keep-original">
+                        <label class="form-check-label" for="convert-keep-original">Keep Original</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="convert-skip-if-source-matches">
+                        <label class="form-check-label" for="convert-skip-if-source-matches">Skip if Source Matches</label>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-3">
                 <div class="col-md-6">
-                    <label for="language" class="form-label">Language</label>
-                    <input type="text" class="form-control" id="language" placeholder="e.g., en-US">
+                    <label for="ffmpeg-path" class="form-label">FFmpeg Path</label>
+                    <input type="text" class="form-control" id="ffmpeg-path" placeholder="ffmpeg">
+                    <small class="text-muted">Only needed if ffmpeg isn't on your PATH.</small>
                 </div>
                 <div class="col-md-6">
-                    <label for="storefront" class="form-label">Storefront</label>
-                    <input type="text" class="form-control" id="storefront" placeholder="e.g., us, jp, ca">
-                    <small class="text-muted">2-letter country code for your account region</small>
+                    <label for="convert-extra-args" class="form-label">Extra Arguments</label>
+                    <input type="text" class="form-control" id="convert-extra-args" placeholder="Additional ffmpeg arguments">
+                    <small class="text-muted">Advanced: additional raw args appended.</small>
                 </div>
             </div>
         </div>
 
         <!-- Download Folders -->
         <div class="settings-section">
-            <h4>📁 Download Folders</h4>
+            <h4>Download Folders</h4>
             <div class="row">
                 <div class="col-md-4">
                     <label for="alac-save-folder" class="form-label">ALAC Folder</label>
@@ -139,7 +184,7 @@
 
         <!-- Quality Settings -->
         <div class="settings-section">
-            <h4>🎵 Quality Settings</h4>
+            <h4>Quality Settings</h4>
             <div class="row">
                 <div class="col-md-3">
                     <label for="aac-type" class="form-label">AAC Type</label>
@@ -175,7 +220,7 @@
 
         <!-- Cover Art Settings -->
         <div class="settings-section">
-            <h4>🖼️ Cover Art Settings</h4>
+            <h4>Cover Art Settings</h4>
             <div class="row">
                 <div class="col-md-4">
                     <label for="cover-size" class="form-label">Cover Size</label>
@@ -214,7 +259,7 @@
 
         <!-- Lyrics Settings -->
         <div class="settings-section">
-            <h4>📝 Lyrics Settings</h4>
+            <h4>Lyrics Settings</h4>
             <div class="row">
                 <div class="col-md-3">
                     <label for="lrc-type" class="form-label">Lyrics Type</label>
@@ -249,9 +294,33 @@
             </div>
         </div>
 
+        <!-- Advanced (rarely needs changing) -->
+        <div class="text-center mb-3">
+            <button class="btn btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#advancedSettings">
+                Show Advanced Settings
+            </button>
+            <p class="text-muted small mt-1">File naming, tagging, and low-level connection settings — most people never need to touch these.</p>
+        </div>
+        <div class="collapse" id="advancedSettings">
+
+        <div class="settings-section">
+            <h4>Auth &amp; Region (advanced)</h4>
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="authorization-token" class="form-label">Authorization Token</label>
+                    <input type="text" class="form-control" id="authorization-token" placeholder="your-authorization-token">
+                    <small class="text-muted">Auto-obtained, usually no need to change.</small>
+                </div>
+                <div class="col-md-6">
+                    <label for="language" class="form-label">Language</label>
+                    <input type="text" class="form-control" id="language" placeholder="e.g., en-US">
+                </div>
+            </div>
+        </div>
+
         <!-- File Naming -->
         <div class="settings-section">
-            <h4>📂 File Naming Formats</h4>
+            <h4>File Naming Formats</h4>
             <div class="row">
                 <div class="col-md-6">
                     <label for="album-folder-format" class="form-label">Album Folder Format</label>
@@ -280,7 +349,7 @@
 
         <!-- Tag Settings -->
         <div class="settings-section">
-            <h4>🏷️ Tag Settings</h4>
+            <h4>Tag Settings</h4>
             <div class="row">
                 <div class="col-md-4">
                     <label for="explicit-choice" class="form-label">Explicit Tag</label>
@@ -312,57 +381,9 @@
             </div>
         </div>
 
-        <!-- Conversion Settings -->
-        <div class="settings-section">
-            <h4>🔄 Conversion Settings</h4>
-            <div class="row">
-                <div class="col-md-3">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="convert-after-download">
-                        <label class="form-check-label" for="convert-after-download">Convert After Download</label>
-                        <small class="text-muted d-block">Requires ffmpeg</small>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <label for="convert-format" class="form-label">Convert Format</label>
-                    <select class="form-select" id="convert-format">
-                        <option value="flac">FLAC</option>
-                        <option value="mp3">MP3</option>
-                        <option value="opus">Opus</option>
-                        <option value="wav">WAV</option>
-                        <option value="copy">Copy (no re-encode)</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <div class="form-check mt-4">
-                        <input class="form-check-input" type="checkbox" id="convert-keep-original">
-                        <label class="form-check-label" for="convert-keep-original">Keep Original</label>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="form-check mt-4">
-                        <input class="form-check-input" type="checkbox" id="convert-skip-if-source-matches">
-                        <label class="form-check-label" for="convert-skip-if-source-matches">Skip if Source Matches</label>
-                    </div>
-                </div>
-            </div>
-            <div class="row mt-3">
-                <div class="col-md-6">
-                    <label for="ffmpeg-path" class="form-label">FFmpeg Path</label>
-                    <input type="text" class="form-control" id="ffmpeg-path" placeholder="ffmpeg">
-                    <small class="text-muted">Override if ffmpeg is not in PATH</small>
-                </div>
-                <div class="col-md-6">
-                    <label for="convert-extra-args" class="form-label">Extra Arguments</label>
-                    <input type="text" class="form-control" id="convert-extra-args" placeholder="Additional ffmpeg arguments">
-                    <small class="text-muted">Advanced: additional raw args appended</small>
-                </div>
-            </div>
-        </div>
-
         <!-- Advanced Settings -->
         <div class="settings-section">
-            <h4>⚙️ Advanced Settings</h4>
+            <h4>Advanced Settings</h4>
             <div class="row">
                 <div class="col-md-3">
                     <label for="max-memory-limit" class="form-label">Max Memory Limit (MB)</label>
@@ -406,11 +427,13 @@
             </div>
         </div>
 
+        </div><!-- /#advancedSettings -->
+
     </form>
 
     <!-- Save Button -->
     <button type="button" class="btn btn-primary btn-lg btn-save" id="save-btn" style="display: none;">
-        💾 Save Settings
+        Save Settings
     </button>
 </div>
 

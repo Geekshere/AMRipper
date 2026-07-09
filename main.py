@@ -4,6 +4,9 @@ import shutil
 import urllib.request
 import json
 import zipfile
+import webbrowser
+import threading
+import time
 from pathlib import Path
 import sys
 
@@ -238,6 +241,8 @@ def firstsetup():
         else:
             print("INFO: Apple Music Downloader already exists, skipping clone")
 
+        ensure_config_yaml()
+
         print("First setup complete!")
 
     except subprocess.CalledProcessError as e:
@@ -247,6 +252,81 @@ def firstsetup():
         print(f"ERROR: Failed to download a required file during setup: {e}")
         print("This is usually a network issue or the host temporarily blocking the request. Try running again.")
         sys.exit(1)
+
+
+def ensure_config_yaml():
+    """The upstream apple-music-downloader repo only ships
+    config.yaml.example — it never creates config.yaml itself, and the
+    Go binary (and our settings page) both fail outright without one.
+    This copies the example over on first use, points download folders
+    at a single AMRipper/downloads/ location instead of scattering them
+    relative to apple-music-downloader/, and nudges convert-after-download
+    to a friendlier default. Safe to call every run: it's a no-op past
+    the initial setup, so it also self-heals installs that got stuck in
+    the old broken state (e.g. an existing 'firstrun' marker from before
+    this fix, which would otherwise skip firstsetup() entirely)."""
+    config_path = AMD_DIR / "config.yaml"
+    example_path = AMD_DIR / "config.yaml.example"
+    downloads_dir = PROJECT_DIR / "downloads"
+
+    folder_keys = {
+        "alac-save-folder": "ALAC",
+        "atmos-save-folder": "Atmos",
+        "aac-save-folder": "AAC",
+        "mv-save-folder": "MV",
+    }
+    old_defaults = {
+        "alac-save-folder": "AM-DL downloads",
+        "atmos-save-folder": "AM-DL-Atmos downloads",
+        "aac-save-folder": "AM-DL-AAC downloads",
+        "mv-save-folder": "AM-DL-MV downloads",
+    }
+
+    if config_path.exists():
+        # Existing install (e.g. from before this fix) — migrate download
+        # folders to the unified location, but only the ones still at
+        # the upstream default, so we don't clobber a custom path.
+        try:
+            import yaml
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f) or {}
+        except Exception as e:
+            print(f"WARN: Could not check config.yaml for folder migration ({e}). Skipping.")
+            return
+
+        changed = False
+        for key, subdir in folder_keys.items():
+            if config.get(key, "") == old_defaults[key]:
+                config[key] = str(downloads_dir / subdir)
+                changed = True
+
+        if changed:
+            downloads_dir.mkdir(parents=True, exist_ok=True)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+            print(f"Migrated download folders to {downloads_dir}")
+        return
+
+    if not example_path.exists():
+        return
+
+    shutil.copy(example_path, config_path)
+
+    # Nudge a couple of defaults to be more useful out of the box.
+    # Line-based replace (not a yaml load/dump) so we don't strip the
+    # example's helpful inline comments on a brand-new config.
+    text = config_path.read_text()
+    text = text.replace(
+        'convert-after-download: false     # Enable post-download conversion (requires ffmpeg)',
+        'convert-after-download: true      # Enable post-download conversion (requires ffmpeg)'
+    )
+    for key, old_val in old_defaults.items():
+        text = text.replace(f'{key}: {old_val}', f'{key}: {downloads_dir / folder_keys[key]}')
+    config_path.write_text(text)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Created {config_path} from config.yaml.example. Downloads will save to {downloads_dir} "
+          "(auto-convert to FLAC enabled by default). Set your media-user-token and storefront in Settings before downloading.")
+
 
 def start():
     print("Starting Apple Music Downloader Web UI...")
@@ -259,9 +339,23 @@ def start():
 
     os.environ["PATH"] = f"{WRAPPER_DIR}:{os.environ['PATH']}"
 
+    # Self-heal installs that reached this point without a config.yaml
+    # (e.g. the 'firstrun' marker already existed from before this fix).
+    ensure_config_yaml()
+
+    # Open the web UI automatically once Flask is actually listening,
+    # instead of leaving the user to go find the URL themselves.
+    def _open_browser():
+        time.sleep(1.5)
+        try:
+            webbrowser.open("http://localhost:5000")
+        except Exception as e:
+            print(f"WARN: Could not auto-open browser ({e}). Open http://localhost:5000 manually.")
+    threading.Thread(target=_open_browser, daemon=True).start()
+
     # Import and run the Flask app
     from app import app   # FIXED: no double "app.app"
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
 
 # === First run check ===
 marker_file = PROJECT_DIR / "firstrun"

@@ -113,4 +113,8 @@ This tool is for educational purposes and personal use only. Please respect Appl
 - **[WorldObservationLog](https://github.com/WorldObservationLog)** for maintaining the authentication [wrapper](https://github.com/WorldObservationLog/wrapper)
 - The entire Apple Music downloading community for their research and tools
 
+## 🤖 Development Notes
+
+Some of the Python/Flask code in this repo (the setup script and web UI, not the underlying downloader or wrapper tools) was written with AI coding assistance. Every change was reviewed and tested by hand before being merged — AI assistance was used for writing and iterating on code, not as a substitute for actually running it.
+
 ---

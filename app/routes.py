@@ -1,6 +1,8 @@
 import subprocess
 import threading
 import re
+import urllib.request
+import urllib.error
 from pathlib import Path
 from flask import render_template, request, jsonify
 import shlex
@@ -100,6 +102,176 @@ def clean_single_release_names(amd_dir, log_target=None):
                     if log_target is not None:
                         log_target.append(f"WARN: Could not rename '{dirname}': {e}")
 
+
+# --- Per-download artist-folder toggle ---
+# artist-folder-format in config.yaml is a single global setting, applied
+# to every download regardless of what kind of link you gave it. That
+# means a direct album link would get nested under an artist folder too
+# (Artist/Album/track.flac) even though there's only one album — only
+# useful when actually downloading a full discography. We toggle it per
+# download instead: on for artist URLs, off otherwise, then restore
+# whatever the user had configured once the download finishes.
+_artist_folder_backup = {"value": None, "active": False}
+
+
+def _read_amd_config(amd_dir):
+    config_path = os.path.join(amd_dir, "config.yaml")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f) or {}
+
+
+def _write_amd_config(amd_dir, config):
+    config_path = os.path.join(amd_dir, "config.yaml")
+    with open(config_path, 'w', encoding='utf-8') as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+
+def set_artist_folder_for_download(amd_dir, is_artist_url):
+    try:
+        config = _read_amd_config(amd_dir)
+    except Exception:
+        return
+
+    _artist_folder_backup["value"] = config.get("artist-folder-format", "")
+    _artist_folder_backup["active"] = True
+
+    if is_artist_url:
+        config["artist-folder-format"] = _artist_folder_backup["value"] or "{ArtistName}"
+    else:
+        config["artist-folder-format"] = ""
+
+    try:
+        _write_amd_config(amd_dir, config)
+    except Exception:
+        _artist_folder_backup["active"] = False
+
+
+def restore_artist_folder_after_download(amd_dir):
+    if not _artist_folder_backup["active"]:
+        return
+    try:
+        config = _read_amd_config(amd_dir)
+        config["artist-folder-format"] = _artist_folder_backup["value"]
+        _write_amd_config(amd_dir, config)
+    except Exception:
+        pass
+    finally:
+        _artist_folder_backup["active"] = False
+
+
+
+# --- Experimental: check available audio formats before downloading ---
+# This queries Apple's public catalog API directly (not the wrapper/
+# downloader) to answer "is this only available in AAC, or does it have
+# lossless/hi-res/Atmos too" before you spend time downloading it. It's
+# read-only and separate from the actual download pipeline, so a failure
+# here never blocks a download — it just means we couldn't tell you in
+# advance. This hits an undocumented Apple endpoint, so treat results as
+# best-effort rather than guaranteed.
+
+_ANON_TOKEN_CACHE = {"token": None}
+
+APPLE_MUSIC_URL_RE = re.compile(
+    r'music\.apple\.com/(?P<storefront>[a-z]{2})/(?P<type>album|song)/[^/]+/(?:id)?(?P<id>\d+)',
+    re.IGNORECASE
+)
+
+
+def _get_anonymous_apple_token():
+    """Scrape the public (anonymous) MusicKit token that music.apple.com's
+    own web player uses. Cached for the life of the process; Apple rotates
+    these occasionally, so a 401/403 downstream should clear the cache and
+    retry once."""
+    if _ANON_TOKEN_CACHE["token"]:
+        return _ANON_TOKEN_CACHE["token"]
+
+    req = urllib.request.Request(
+        "https://music.apple.com/us/browse",
+        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        html = resp.read().decode('utf-8', errors='ignore')
+
+    match = re.search(r'"token"\s*:\s*"([^"]+)"', html)
+    if not match:
+        raise RuntimeError("Could not find MusicKit token on music.apple.com — Apple may have changed their page")
+
+    token = match.group(1)
+    _ANON_TOKEN_CACHE["token"] = token
+    return token
+
+
+def _apple_catalog_request(url, token):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Origin": "https://music.apple.com",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+
+TRAIT_LABELS = {
+    "atmos": "Dolby Atmos",
+    "hi-res-lossless": "Hi-Res Lossless (ALAC)",
+    "lossless": "Lossless (ALAC)",
+    "dolby-audio": "Dolby Audio",
+}
+
+
+def check_available_formats(link):
+    """Returns {'formats': {trait: bool}, 'raw_traits': [...]}, or raises
+    with a human-readable message on any failure. Caller is responsible
+    for catching and degrading gracefully."""
+    match = APPLE_MUSIC_URL_RE.search(link)
+    if not match:
+        raise ValueError("Couldn't recognize this as a song or album URL (playlists/artists aren't supported yet)")
+
+    storefront = match.group("storefront").lower()
+    media_type = match.group("type")
+    media_id = match.group("id")
+
+    # An album URL with ?i=<id> is a link to one specific track within
+    # that album, not the album as a whole — look up that track directly
+    # so results reflect the actual link, not the whole album's aggregate.
+    song_id_match = re.search(r'[?&]i=(\d+)', link)
+    if song_id_match:
+        media_type = "song"
+        media_id = song_id_match.group(1)
+
+    token = _get_anonymous_apple_token()
+
+    try:
+        if media_type == "song":
+            url = f"https://amp-api.music.apple.com/v1/catalog/{storefront}/songs/{media_id}"
+            data = _apple_catalog_request(url, token)
+            traits = set(data["data"][0]["attributes"].get("audioTraits", []))
+        else:
+            url = f"https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{media_id}?include=tracks"
+            data = _apple_catalog_request(url, token)
+            traits = set()
+            for track in data["data"][0].get("relationships", {}).get("tracks", {}).get("data", []):
+                traits.update(track.get("attributes", {}).get("audioTraits", []))
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            # Token likely expired/rotated — clear cache so the next
+            # request re-scrapes a fresh one, but don't retry mid-request.
+            _ANON_TOKEN_CACHE["token"] = None
+        raise RuntimeError(f"Apple's catalog API returned HTTP {e.code}")
+
+    formats = {label: (key in traits) for key, label in TRAIT_LABELS.items()}
+    # AAC is effectively always available as the baseline stereo format;
+    # explicitly note it rather than leaving it implicit.
+    formats["AAC"] = True
+
+    return {"formats": formats, "raw_traits": sorted(traits)}
+
+
 wrapper_process = None
 wrapper_running = False
 wrapper_needs_2fa = False
@@ -122,11 +294,19 @@ def stream_download_logs(pipe, target_list):
         # Check if process ended
         if download_process and download_process.poll() is not None:
             exit_code = download_process.poll()
+            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            amd_dir = os.path.join(script_dir, "apple-music-downloader")
+
+            # Always restore the user's configured artist-folder-format,
+            # whether the download succeeded or failed.
+            try:
+                restore_artist_folder_after_download(amd_dir)
+            except Exception as e:
+                target_list.append(f"WARN: Could not restore artist-folder-format setting: {e}")
+
             if exit_code == 0:
                 target_list.append("Download completed successfully.")
                 try:
-                    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    amd_dir = os.path.join(script_dir, "apple-music-downloader")
                     clean_single_release_names(amd_dir, log_target=target_list)
                 except Exception as e:
                     target_list.append(f"WARN: Single-release cleanup failed: {e}")
@@ -344,8 +524,24 @@ def submit_2fa():
         wrapper_needs_2fa = False
         return jsonify({"status": "ok", "msg": "2FA code submitted"})
     except Exception as e:
-        wrapper_logs.append(f"❌ Error submitting 2FA code: {str(e)}")
+        wrapper_logs.append(f"Error submitting 2FA code: {str(e)}")
         return jsonify({"status": "error", "msg": f"Failed to submit 2FA code: {str(e)}"})
+
+
+@app.route("/check_formats", methods=["POST"])
+def check_formats_route():
+    """Experimental: look up what audio formats a song/album is actually
+    available in before downloading. Read-only, hits Apple's public
+    catalog API directly — never blocks or affects an actual download,
+    it's purely informational."""
+    link = request.form.get("link", "")
+    if not link:
+        return jsonify({"status": "error", "msg": "No URL provided"})
+    try:
+        result = check_available_formats(link)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)})
 
 
 @app.route("/download", methods=["POST"])
@@ -392,6 +588,11 @@ def download():
 
     if is_artist_url:
         downloader_logs.append("Artist URL detected — downloading full discography (--all-album)")
+
+    try:
+        set_artist_folder_for_download(amd_dir, is_artist_url)
+    except Exception as e:
+        downloader_logs.append(f"WARN: Could not adjust artist-folder-format setting: {e}")
 
     downloader_logs.append(f"Working directory: {amd_dir}")
     downloader_logs.append(f"Executing: {' '.join(cmd)}")
@@ -462,7 +663,14 @@ def get_config():
     try:
         script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         config_path = os.path.join(script_dir, "apple-music-downloader", "config.yaml")
-        
+
+        if not os.path.exists(config_path):
+            return jsonify({
+                "status": "error",
+                "msg": "config.yaml doesn't exist yet. Restart AMRipper (python3 main.py) to have it "
+                       "generated automatically, then reload this page."
+            })
+
         with open(config_path, 'r', encoding='utf-8') as file:
             config = yaml.safe_load(file)
             return jsonify({"status": "ok", "config": config})
