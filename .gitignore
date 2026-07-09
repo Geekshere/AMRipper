@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+firstrun
+.credentials
+bento4/
+wrapper/
+apple-music-downloader/
+bento4.zip
+wrapper.x86_64.zip

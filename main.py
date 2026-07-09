@@ -11,18 +11,26 @@ WRAPPER_DIR = PROJECT_DIR / "wrapper"
 AMD_DIR = PROJECT_DIR / "apple-music-downloader"
 
 def firstsetup():
-    # --- Check for root ---
-    if os.geteuid() != 0:
-        print("ERROR: This script must be run as root. Exiting.")
-        sys.exit(1)
-
+    # --- Only escalate for the actual package install step ---
+    # Everything else (downloads, extraction, git clone) runs as the
+    # invoking user so the resulting files aren't root-owned. Root-owned
+    # files under the project dir is what previously blocked downloads
+    # with "permission denied" after the first run.
     try:
-        # Step 1: Install required packages
-        # subprocess.run(
-        #     ["apt-get", "install", "-y", "git", "ffmpeg", "gpac", "golang-go", "wget","python3-flask","python3-yaml"],
-        #     check=True
-        # )
-        print("Packages installed successfully.")
+        # Step 1: Install required packages (needs root)
+        if os.geteuid() == 0:
+            pkg_cmd = ["apt-get", "install", "-y", "git", "ffmpeg", "gpac", "golang-go", "wget", "python3-flask", "python3-yaml"]
+        else:
+            pkg_cmd = ["sudo", "apt-get", "install", "-y", "git", "ffmpeg", "gpac", "golang-go", "wget", "python3-flask", "python3-yaml"]
+
+        try:
+            subprocess.run(pkg_cmd, check=True)
+            print("Packages installed successfully.")
+        except FileNotFoundError:
+            print("WARN: apt-get not found (non-Debian system). Skipping package install — "
+                  "make sure git, ffmpeg, gpac (MP4Box), and go are installed manually.")
+        except subprocess.CalledProcessError as e:
+            print(f"WARN: Package install failed ({e}). Continuing — install git/ffmpeg/gpac/go manually if setup fails below.")
 
         # Step 2: Download and set up Bento4
         BENTO4_URL = "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.x86_64-unknown-linux.zip"
@@ -30,7 +38,7 @@ def firstsetup():
 
         if not BENTO4_DIR.exists():
             print(f"Downloading Bento4 from {BENTO4_URL}...")
-            # urllib.request.urlretrieve(BENTO4_URL, zip_path)
+            urllib.request.urlretrieve(BENTO4_URL, zip_path)
             print("Extracting Bento4...")
 
             BENTO4_DIR.mkdir(parents=True, exist_ok=True)
@@ -39,109 +47,37 @@ def firstsetup():
             os.remove(zip_path)
 
             print("Bento4 installed inside project folder.")
-            
-            # Create symbolic links to Bento4 tools in /usr/local/bin
+
+            # Make the extracted tools executable (ZIP extraction doesn't
+            # preserve the execute bit) and add them to PATH for this
+            # session. We intentionally do NOT symlink into /usr/local/bin
+            # here — that requires root, and start() already prepends this
+            # bin dir to PATH on every run, so a system-wide symlink is
+            # unnecessary and was the second reason this script needed root.
             bin_candidates = list(BENTO4_DIR.glob("Bento4*"))
             if bin_candidates:
                 bin_dir = bin_candidates[0] / "bin"
-                print(f"DEBUG: Creating symbolic links for Bento4 tools from: {bin_dir}")
-                print(f"DEBUG: Bin directory exists: {bin_dir.exists()}")
-                
-                if not bin_dir.exists():
-                    print(f"ERROR: Bin directory does not exist: {bin_dir}")
-                    return
-                
-                # List all files for debugging
-                all_files = list(bin_dir.glob("*"))
-                print(f"DEBUG: All files in bin: {[f.name for f in all_files]}")
-                
-                # First, make all files executable (ZIP extraction doesn't preserve execute permissions)
-                print("Setting execute permissions on all Bento4 tools...")
-                for exe_file in all_files:
-                    if exe_file.is_file():
-                        try:
-                            # Add execute permission for owner, group, and others
-                            current_mode = exe_file.stat().st_mode
-                            new_mode = current_mode | 0o755  # rwxr-xr-x
-                            exe_file.chmod(new_mode)
-                            print(f"  CHMOD: Set execute permission on {exe_file.name}")
-                        except Exception as e:
-                            print(f"  ERROR: Failed to set execute permission on {exe_file.name}: {e}")
-                
-                # Now check for executable files again
-                executable_files = [f for f in all_files if f.is_file() and os.access(f, os.X_OK)]
-                print(f"DEBUG: Executable files after chmod: {[f.name for f in executable_files]}")
-                
-                # Add to current session PATH as well
-                os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
-                
-                # Create symbolic links with detailed error reporting
-                success_count = 0
-                error_count = 0
-                
-                for exe_file in executable_files:
-                    try:
-                        link_path = Path("/usr/local/bin") / exe_file.name
-                        print(f"DEBUG: Attempting to create symlink: {exe_file.name}")
-                        print(f"DEBUG: Source: {exe_file.absolute()}")
-                        print(f"DEBUG: Target: {link_path}")
-                        
-                        if link_path.exists():
-                            print(f"  INFO: Already exists: {exe_file.name}")
-                        else:
-                            os.symlink(str(exe_file.absolute()), str(link_path))
-                            print(f"  SUCCESS: Created symlink for {exe_file.name}")
-                            success_count += 1
-                            
-                    except Exception as e:
-                        print(f"  ERROR: Failed to create symlink for {exe_file.name}: {e}")
-                        error_count += 1
-                
-                print(f"SUMMARY: {success_count} symlinks created, {error_count} errors")
-                
-                # Verify what actually got created
-                print("Verifying /usr/local/bin contents...")
-                usr_local_bin = Path("/usr/local/bin")
-                if usr_local_bin.exists():
-                    bento4_links = [f for f in usr_local_bin.glob("*") if f.is_symlink()]
-                    print(f"Found {len(bento4_links)} symlinks in /usr/local/bin")
-                    for link in bento4_links:
-                        if any(exe.name == link.name for exe in executable_files):
-                            print(f"  VERIFIED: {link.name} -> {link.readlink()}")
+                if bin_dir.exists():
+                    for exe_file in bin_dir.glob("*"):
+                        if exe_file.is_file():
+                            try:
+                                exe_file.chmod(exe_file.stat().st_mode | 0o755)
+                            except Exception as e:
+                                print(f"  WARN: Failed to set execute permission on {exe_file.name}: {e}")
+                    os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
+                    print(f"Bento4 tools available at: {bin_dir}")
                 else:
-                    print("ERROR: /usr/local/bin does not exist")
+                    print(f"WARN: Bin directory does not exist: {bin_dir}")
             else:
                 print("WARN: Could not find Bento4 extracted folder")
-                
+
         else:
             print("INFO: Bento4 already exists, skipping download")
-            
-            # Ensure Bento4 tools are available even if already downloaded
+
             bin_candidates = list(BENTO4_DIR.glob("Bento4*"))
             if bin_candidates:
                 bin_dir = bin_candidates[0] / "bin"
                 os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
-                
-                # Check if symbolic links need to be created
-                try:
-                    missing_links = []
-                    for exe_file in bin_dir.glob("*"):
-                        if exe_file.is_file() and os.access(exe_file, os.X_OK):
-                            link_path = Path("/usr/local/bin") / exe_file.name
-                            if not link_path.exists():
-                                missing_links.append((exe_file, link_path))
-                    
-                    if missing_links:
-                        print("Creating missing Bento4 symbolic links...")
-                        for exe_file, link_path in missing_links:
-                            os.symlink(exe_file, link_path)
-                            print(f"  Created symlink: {exe_file.name}")
-                    else:
-                        print("✅ Bento4 tools already available system-wide")
-                        
-                except Exception as e:
-                    print(f"WARN: Could not verify/create symbolic links: {e}")
-                    print(f"Added existing Bento4 bin to current session PATH: {bin_dir}")
 
         # Step 3: Download and extract wrapper
         WRAPPER_URL = "https://github.com/WorldObservationLog/wrapper/releases/download/Wrapper.x86_64.0df45b5/Wrapper.x86_64.0df45b5.zip"
@@ -149,7 +85,7 @@ def firstsetup():
 
         if not WRAPPER_DIR.exists():
             print(f"Downloading wrapper from {WRAPPER_URL}...")
-            # urllib.request.urlretrieve(WRAPPER_URL, wrapper_zip)
+            urllib.request.urlretrieve(WRAPPER_URL, wrapper_zip)
             print("Extracting wrapper...")
 
             WRAPPER_DIR.mkdir(parents=True, exist_ok=True)
@@ -157,7 +93,7 @@ def firstsetup():
                 zip_ref.extractall(WRAPPER_DIR)
             os.remove(wrapper_zip)
 
-            # Ensure the wrapper binary is executable (running as root, so no sudo needed)
+            # Ensure the wrapper binary is executable
             wrapper_bin = WRAPPER_DIR / "wrapper"
             try:
                 if wrapper_bin.exists():

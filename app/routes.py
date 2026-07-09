@@ -23,8 +23,7 @@ def stream_download_logs(pipe, target_list):
             line = line.strip()
             if line:
                 target_list.append(line)
-                print(f"[DOWNLOAD LOG] {line}")  # Debug print
-                    
+
     except Exception as e:
         target_list.append(f"Error reading download logs: {str(e)}")
     finally:
@@ -48,8 +47,7 @@ def stream_wrapper_logs(pipe, target_list, email=None, password=None, auto_login
             line = line.strip()
             if line:
                 target_list.append(line)
-                print(f"[WRAPPER LOG] {line}")  # Debug print
-                
+
                 # Check for 2FA requirement
                 if "credentialHandler:" in line and "2FA: true" in line:
                     wrapper_needs_2fa = True
@@ -272,19 +270,30 @@ def download():
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     amd_dir = os.path.join(script_dir, "apple-music-downloader")
     
+    # Artist URLs make the downloader list every album and prompt on stdin
+    # for a selection ("comma-separated / range / 'all'"). Since this
+    # process is launched from the web server with no interactive stdin
+    # attached, that prompt just hangs forever. The downloader has a
+    # built-in flag to skip it and grab the whole discography instead.
+    is_artist_url = "/artist/" in link
+    extra_flags = ["--all-album"] if is_artist_url else []
+
     if special_audio:
         if format_choice == "ATMOS":
-            cmd = ["go", "run", "main.go", "--atmos", link]
+            cmd = ["go", "run", "main.go", "--atmos", *extra_flags, link]
             downloader_logs.append(f"Starting ATMOS download: {link}")
         elif format_choice == "AAC":
-            cmd = ["go", "run", "main.go", "--aac", link]
+            cmd = ["go", "run", "main.go", "--aac", *extra_flags, link]
             downloader_logs.append(f"Starting AAC download: {link}")
         else:
             return jsonify({"status": "error", "msg": "Invalid format selected"})
     else:
-        cmd = ["go", "run", "main.go", link]
+        cmd = ["go", "run", "main.go", *extra_flags, link]
         downloader_logs.append(f"Starting standard download: {link}")
-    
+
+    if is_artist_url:
+        downloader_logs.append("Artist URL detected — downloading full discography (--all-album)")
+
     downloader_logs.append(f"Working directory: {amd_dir}")
     downloader_logs.append(f"Executing: {' '.join(cmd)}")
     
@@ -293,6 +302,7 @@ def download():
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
             bufsize=1,
             universal_newlines=True,
             cwd=amd_dir  # Run from apple-music-downloader directory
