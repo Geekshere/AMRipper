@@ -378,16 +378,31 @@ def ensure_config_yaml():
             if config.get(key, "") in old_vals:
                 config[key] = naming_new_values[key]
                 changed = True
-        # convert-keep-original must be true, not a preference: ffmpeg's
-        # own -map_metadata mapping during ALAC->FLAC conversion doesn't
-        # actually carry tags over (confirmed — the converted FLAC ends
-        # up with only ffmpeg's own encoder comment, nothing else), so
-        # AMRipper now copies tags from the M4A to the FLAC itself after
-        # conversion and deletes the M4A afterward. The Go tool deletes
-        # the M4A itself, inside its own process, before we ever get
-        # control back if this is false — leaving nothing for us to copy from.
-        if config.get("convert-keep-original") is not True:
-            config["convert-keep-original"] = True
+        # The Go tool's own conversion is now always disabled (see below)
+        # since its ffmpeg metadata mapping doesn't work — AMRipper does
+        # ALAC->FLAC conversion itself in Python instead, using its own
+        # separate amripper-* keys so this doesn't depend on (or fight
+        # with) convert-keep-original at all. Migrate any existing
+        # preference the user had under the old keys into the new ones
+        # once, so upgrading doesn't silently change behavior.
+        if "amripper-convert-after-download" not in config:
+            # Not derived from the old convert-after-download value — its
+            # default was false, but auto-convert-to-FLAC has been the
+            # intended default here from the start regardless of that.
+            config["amripper-convert-after-download"] = True
+            changed = True
+        if "amripper-convert-format" not in config:
+            config["amripper-convert-format"] = config.get("convert-format") or "flac"
+            changed = True
+        if "amripper-keep-original" not in config:
+            # Not read from the old convert-keep-original value on
+            # purpose — a previous version of this script force-set that
+            # to true as part of a since-abandoned approach, so it
+            # doesn't reflect a genuine preference to carry forward.
+            config["amripper-keep-original"] = False
+            changed = True
+        if config.get("convert-after-download") is not False:
+            config["convert-after-download"] = False
             changed = True
         # limit-max=200 was the upstream default; with the new naming
         # scheme concatenating artist+album+track into one filename,
@@ -417,13 +432,19 @@ def ensure_config_yaml():
     # (not a yaml load/dump) so we don't strip the example's helpful
     # inline comments on a brand-new config.
     text = config_path.read_text()
+    # The Go tool's own conversion is disabled permanently — its ffmpeg
+    # metadata mapping doesn't actually carry tags over. AMRipper does
+    # conversion itself instead, controlled by the separate amripper-*
+    # keys below, so this never needs to be true.
     text = text.replace(
         'convert-after-download: false     # Enable post-download conversion (requires ffmpeg)',
-        'convert-after-download: true      # Enable post-download conversion (requires ffmpeg)'
+        'convert-after-download: false     # Always false — AMRipper converts itself, see amripper-convert-after-download below'
     )
-    text = text.replace(
-        'convert-keep-original: false       # Keep original file after successful conversion',
-        'convert-keep-original: true        # Keep original file after successful conversion'
+    text += (
+        "\n# --- AMRipper-specific settings (not read by the underlying Go tool) ---\n"
+        "amripper-convert-after-download: true   # Convert ALAC downloads to another format afterward\n"
+        "amripper-convert-format: \"flac\"         # Target format (currently only flac is implemented)\n"
+        "amripper-keep-original: false           # Keep the original .m4a after converting\n"
     )
     for key in folder_keys:
         text = text.replace(f'{key}: {old_defaults[key][0]}', f'{key}: {downloads_dir}')

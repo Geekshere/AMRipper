@@ -88,7 +88,9 @@ You'll also need `git` to clone this repository in the first place. If `git --ve
 
 ### Tagging
 
-Every downloaded track gets tagged automatically: title, artist, album, album artist, track/disc numbers, composer, genre, ISRC, release date, copyright, and cover art. After each download finishes, AMRipper reads the tags back off the actual file and reports what it found in the downloader log, so you can see directly whether tagging worked without needing a separate tool.
+Every downloaded track gets tagged automatically: title, artist, album, album artist, track/disc numbers, composer, genre, ISRC, release date, copyright, and cover art. The underlying downloader writes these tags to the ALAC file itself, but its own conversion step to FLAC doesn't reliably carry that metadata over, so AMRipper handles the ALAC-to-FLAC conversion itself instead, copies the tags across directly, and then removes the original ALAC file. After each download finishes, AMRipper reads the tags back off the final file and reports what it found in the downloader log, so you can see directly whether tagging worked without needing a separate tool.
+
+If you'd rather keep the original ALAC (.m4a) file alongside the FLAC, or skip conversion entirely and keep ALAC only, both are toggles in Settings.
 
 Single-track releases also have the trailing "- Single" suffix Apple adds stripped from both the folder name and the album tag.
 

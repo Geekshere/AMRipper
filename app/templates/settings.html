@@ -118,34 +118,18 @@
         <!-- Conversion Settings -->
         <div class="settings-section">
             <h4>Conversion Settings</h4>
-            <p class="text-muted mb-3">By default, downloads are automatically converted to FLAC after downloading (requires ffmpeg, which setup already installed for you).</p>
+            <p class="text-muted mb-3">AMRipper converts downloads to FLAC itself after downloading (requires ffmpeg, which setup already installed for you), rather than relying on the underlying tool's own conversion.</p>
             <div class="row">
-                <div class="col-md-3">
+                <div class="col-md-6">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="convert-after-download">
-                        <label class="form-check-label" for="convert-after-download">Convert After Download</label>
+                        <input class="form-check-input" type="checkbox" id="amripper-convert-after-download">
+                        <label class="form-check-label" for="amripper-convert-after-download">Convert to FLAC After Download</label>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <label for="convert-format" class="form-label">Convert Format</label>
-                    <select class="form-select" id="convert-format">
-                        <option value="flac">FLAC</option>
-                        <option value="mp3">MP3</option>
-                        <option value="opus">Opus</option>
-                        <option value="wav">WAV</option>
-                        <option value="copy">Copy (no re-encode)</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <div class="form-check mt-4">
-                        <input class="form-check-input" type="checkbox" id="convert-keep-original">
-                        <label class="form-check-label" for="convert-keep-original">Keep Original</label>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="form-check mt-4">
-                        <input class="form-check-input" type="checkbox" id="convert-skip-if-source-matches">
-                        <label class="form-check-label" for="convert-skip-if-source-matches">Skip if Source Matches</label>
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="amripper-keep-original">
+                        <label class="form-check-label" for="amripper-keep-original">Keep Original ALAC (.m4a) Too</label>
                     </div>
                 </div>
             </div>
@@ -154,11 +138,6 @@
                     <label for="ffmpeg-path" class="form-label">FFmpeg Path</label>
                     <input type="text" class="form-control" id="ffmpeg-path" placeholder="ffmpeg">
                     <small class="text-muted">Only needed if ffmpeg isn't on your PATH.</small>
-                </div>
-                <div class="col-md-6">
-                    <label for="convert-extra-args" class="form-label">Extra Arguments</label>
-                    <input type="text" class="form-control" id="convert-extra-args" placeholder="Additional ffmpeg arguments">
-                    <small class="text-muted">Advanced: additional raw args appended.</small>
                 </div>
             </div>
         </div>

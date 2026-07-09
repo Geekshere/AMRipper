@@ -114,20 +114,24 @@ def clean_single_release_names(amd_dir, log_target=None):
                         log_target.append(f"WARN: Could not rename '{dirname}': {e}")
 
 
-def copy_tags_from_m4a_and_cleanup(amd_dir, log_target=None):
-    """The actual tagging bug: the Go tool's own ffmpeg conversion step
-    (M4A ALAC -> FLAC) doesn't carry metadata over despite requesting
-    -map_metadata 0 — confirmed by testing, the converted FLAC ends up
-    with only ffmpeg's own encoder comment and nothing else, even
-    though the source M4A has complete, correct tags. This copies tags
-    (and cover art) from each converted M4A to its FLAC sibling
-    directly with mutagen, then deletes the M4A — replicating the
-    'keep only the final format' behavior the config's
-    convert-keep-original: false used to provide, but done ourselves so
-    we can actually copy the tags first. Requires convert-keep-original
-    to be true (see ensure_config_yaml in main.py) so the M4A still
-    exists by the time this runs — the Go tool deletes it itself,
-    inside its own process, when that setting is false."""
+def convert_and_finalize_downloads(amd_dir, log_target=None):
+    """AMRipper's own conversion step, replacing the Go tool's built-in
+    one entirely. The Go tool's ffmpeg conversion requests
+    -map_metadata 0 but doesn't actually carry tags over (confirmed by
+    testing: the resulting FLAC has only ffmpeg's own encoder comment,
+    nothing else, even when the source M4A has complete correct tags).
+    Worse, the Go tool deletes the M4A itself, inside its own process,
+    the moment its conversion finishes — so there's no way to fix this
+    by post-processing after the fact if the Go tool is the one doing
+    the deleting; there's no hook into its internals to intercept that.
+
+    So the Go tool's conversion is now permanently disabled
+    (convert-after-download: false is forced in its config, see
+    ensure_config_yaml in main.py) and AMRipper does the whole thing
+    itself: run ffmpeg directly, copy tags from the M4A with mutagen
+    once we know that succeeded, then delete the M4A ourselves — fully
+    within our own control, so 'delete the M4A after' and 'tags
+    actually survive' aren't in tension with each other."""
     if not MUTAGEN_AVAILABLE:
         return
 
@@ -136,8 +140,18 @@ def copy_tags_from_m4a_and_cleanup(amd_dir, log_target=None):
     except Exception:
         return
 
-    if not (config.get("convert-after-download") and config.get("convert-format", "").lower() == "flac"):
+    if not config.get("amripper-convert-after-download", True):
         return
+
+    target_format = (config.get("amripper-convert-format") or "flac").lower()
+    if target_format != "flac":
+        if log_target is not None:
+            log_target.append(f"NOTE: amripper-convert-format is '{target_format}' — AMRipper's own "
+                               "conversion currently only implements flac. Leaving files as ALAC (.m4a).")
+        return
+
+    keep_original = bool(config.get("amripper-keep-original", False))
+    ffmpeg_path = config.get("ffmpeg-path") or "ffmpeg"
 
     folder = Path(config.get("alac-save-folder", ""))
     if not folder.exists():
@@ -151,8 +165,29 @@ def copy_tags_from_m4a_and_cleanup(amd_dir, log_target=None):
 
     for m4a_path in folder.rglob("*.m4a"):
         flac_path = m4a_path.with_suffix(".flac")
-        if not flac_path.exists():
-            continue  # no matching conversion output, leave it alone
+        if flac_path.exists():
+            continue  # already converted in a previous run
+
+        try:
+            result = subprocess.run(
+                [ffmpeg_path, "-y", "-i", str(m4a_path), "-map", "0:a", "-map_metadata", "-1",
+                 "-c:a", "flac", "-loglevel", "error", str(flac_path)],
+                capture_output=True, text=True, timeout=300
+            )
+        except FileNotFoundError:
+            if log_target is not None:
+                log_target.append(f"WARN: ffmpeg ('{ffmpeg_path}') not found — skipping conversion for {m4a_path.name}.")
+            continue
+        except subprocess.TimeoutExpired:
+            if log_target is not None:
+                log_target.append(f"WARN: ffmpeg timed out converting {m4a_path.name}.")
+            continue
+
+        if result.returncode != 0:
+            if log_target is not None:
+                log_target.append(f"WARN: ffmpeg conversion failed for {m4a_path.name}: {result.stderr.strip()[:300]}")
+            flac_path.unlink(missing_ok=True)
+            continue
 
         try:
             m4a = MP4(m4a_path)
@@ -185,18 +220,19 @@ def copy_tags_from_m4a_and_cleanup(amd_dir, log_target=None):
 
             flac.save()
 
-            try:
-                m4a_path.unlink()
-            except Exception as e:
-                if log_target is not None:
-                    log_target.append(f"WARN: Copied tags but couldn't remove original {m4a_path.name}: {e}")
+            if not keep_original:
+                try:
+                    m4a_path.unlink()
+                except Exception as e:
+                    if log_target is not None:
+                        log_target.append(f"WARN: Converted and tagged but couldn't remove original {m4a_path.name}: {e}")
 
             if log_target is not None:
-                log_target.append(f"Copied tags to {flac_path.name}")
+                log_target.append(f"Converted and tagged {flac_path.name}")
 
         except Exception as e:
             if log_target is not None:
-                log_target.append(f"WARN: Could not copy tags for {m4a_path.name}: {e}")
+                log_target.append(f"WARN: Converted {m4a_path.name} but tag copy failed: {e}")
 
 
 def verify_tags_on_latest_download(amd_dir, log_target=None):
@@ -468,7 +504,7 @@ def stream_download_logs(pipe, target_list):
             if exit_code == 0:
                 target_list.append("Download completed successfully.")
                 try:
-                    copy_tags_from_m4a_and_cleanup(amd_dir, log_target=target_list)
+                    convert_and_finalize_downloads(amd_dir, log_target=target_list)
                 except Exception as e:
                     target_list.append(f"WARN: Tag copy to converted file failed: {e}")
                 try:
@@ -887,7 +923,7 @@ def save_config():
             'embed-lrc', 'save-lrc-file', 'save-artist-cover', 'save-animated-artwork',
             'emby-animated-artwork', 'embed-cover', 'get-m3u8-from-device',
             'use-songinfo-for-playlist', 'dl-albumcover-for-playlist',
-            'convert-after-download', 'convert-keep-original', 'convert-skip-if-source-matches'
+            'amripper-convert-after-download', 'amripper-keep-original'
         }
         
         # Define fields that are folder paths and need Windows to WSL translation
@@ -942,6 +978,12 @@ def save_config():
         except Exception:
             full_config = {}
         full_config.update(config_data)
+        # The Go tool's own conversion is permanently disabled — its
+        # ffmpeg metadata mapping doesn't work (see convert_and_finalize_
+        # downloads in routes.py). AMRipper's own amripper-convert-after-
+        # download controls conversion instead. Force this regardless of
+        # what was submitted, so it can't get flipped back on by mistake.
+        full_config['convert-after-download'] = False
 
         with open(config_path, 'w', encoding='utf-8') as file:
             yaml.dump(full_config, file, default_flow_style=False, allow_unicode=True)
