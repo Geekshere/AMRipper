@@ -15,7 +15,7 @@ from . import app
 
 try:
     from mutagen.mp4 import MP4
-    from mutagen.flac import FLAC
+    from mutagen.flac import FLAC, Picture
     MUTAGEN_AVAILABLE = True
 except ImportError:
     MUTAGEN_AVAILABLE = False
@@ -91,6 +91,15 @@ def clean_single_release_names(amd_dir, log_target=None):
                         except Exception as e:
                             if log_target is not None:
                                 log_target.append(f"WARN: Could not update album tag for {audio_file.name}: {e}")
+                    for audio_file in old_path.glob("*.flac"):
+                        try:
+                            tags = FLAC(audio_file)
+                            if "album" in tags:
+                                tags["album"] = [SINGLE_SUFFIX_RE.sub('', tags["album"][0]).strip()]
+                                tags.save()
+                        except Exception as e:
+                            if log_target is not None:
+                                log_target.append(f"WARN: Could not update album tag for {audio_file.name}: {e}")
 
                 try:
                     if new_path.exists():
@@ -103,6 +112,91 @@ def clean_single_release_names(amd_dir, log_target=None):
                 except Exception as e:
                     if log_target is not None:
                         log_target.append(f"WARN: Could not rename '{dirname}': {e}")
+
+
+def copy_tags_from_m4a_and_cleanup(amd_dir, log_target=None):
+    """The actual tagging bug: the Go tool's own ffmpeg conversion step
+    (M4A ALAC -> FLAC) doesn't carry metadata over despite requesting
+    -map_metadata 0 — confirmed by testing, the converted FLAC ends up
+    with only ffmpeg's own encoder comment and nothing else, even
+    though the source M4A has complete, correct tags. This copies tags
+    (and cover art) from each converted M4A to its FLAC sibling
+    directly with mutagen, then deletes the M4A — replicating the
+    'keep only the final format' behavior the config's
+    convert-keep-original: false used to provide, but done ourselves so
+    we can actually copy the tags first. Requires convert-keep-original
+    to be true (see ensure_config_yaml in main.py) so the M4A still
+    exists by the time this runs — the Go tool deletes it itself,
+    inside its own process, when that setting is false."""
+    if not MUTAGEN_AVAILABLE:
+        return
+
+    try:
+        config = _read_amd_config(amd_dir)
+    except Exception:
+        return
+
+    if not (config.get("convert-after-download") and config.get("convert-format", "").lower() == "flac"):
+        return
+
+    folder = Path(config.get("alac-save-folder", ""))
+    if not folder.exists():
+        return
+
+    text_map = {
+        "\xa9nam": "title", "\xa9ART": "artist", "aART": "albumartist",
+        "\xa9alb": "album", "\xa9wrt": "composer", "\xa9gen": "genre",
+        "\xa9day": "date", "cprt": "copyright", "\xa9lyr": "lyrics",
+    }
+
+    for m4a_path in folder.rglob("*.m4a"):
+        flac_path = m4a_path.with_suffix(".flac")
+        if not flac_path.exists():
+            continue  # no matching conversion output, leave it alone
+
+        try:
+            m4a = MP4(m4a_path)
+            flac = FLAC(flac_path)
+
+            for atom, vorbis_key in text_map.items():
+                if atom in m4a and m4a[atom]:
+                    flac[vorbis_key] = [str(v) for v in m4a[atom]]
+
+            if "trkn" in m4a and m4a["trkn"]:
+                track, total = m4a["trkn"][0]
+                flac["tracknumber"] = [str(track)]
+                if total:
+                    flac["tracktotal"] = [str(total)]
+
+            if "disk" in m4a and m4a["disk"]:
+                disc, total = m4a["disk"][0]
+                flac["discnumber"] = [str(disc)]
+                if total:
+                    flac["disctotal"] = [str(total)]
+
+            if "covr" in m4a and m4a["covr"]:
+                cover_data = m4a["covr"][0]
+                pic = Picture()
+                pic.data = bytes(cover_data)
+                pic.type = 3  # front cover
+                pic.mime = "image/png" if cover_data.imageformat == cover_data.FORMAT_PNG else "image/jpeg"
+                flac.clear_pictures()
+                flac.add_picture(pic)
+
+            flac.save()
+
+            try:
+                m4a_path.unlink()
+            except Exception as e:
+                if log_target is not None:
+                    log_target.append(f"WARN: Copied tags but couldn't remove original {m4a_path.name}: {e}")
+
+            if log_target is not None:
+                log_target.append(f"Copied tags to {flac_path.name}")
+
+        except Exception as e:
+            if log_target is not None:
+                log_target.append(f"WARN: Could not copy tags for {m4a_path.name}: {e}")
 
 
 def verify_tags_on_latest_download(amd_dir, log_target=None):
@@ -373,6 +467,10 @@ def stream_download_logs(pipe, target_list):
 
             if exit_code == 0:
                 target_list.append("Download completed successfully.")
+                try:
+                    copy_tags_from_m4a_and_cleanup(amd_dir, log_target=target_list)
+                except Exception as e:
+                    target_list.append(f"WARN: Tag copy to converted file failed: {e}")
                 try:
                     clean_single_release_names(amd_dir, log_target=target_list)
                 except Exception as e:

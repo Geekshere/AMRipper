@@ -378,6 +378,17 @@ def ensure_config_yaml():
             if config.get(key, "") in old_vals:
                 config[key] = naming_new_values[key]
                 changed = True
+        # convert-keep-original must be true, not a preference: ffmpeg's
+        # own -map_metadata mapping during ALAC->FLAC conversion doesn't
+        # actually carry tags over (confirmed — the converted FLAC ends
+        # up with only ffmpeg's own encoder comment, nothing else), so
+        # AMRipper now copies tags from the M4A to the FLAC itself after
+        # conversion and deletes the M4A afterward. The Go tool deletes
+        # the M4A itself, inside its own process, before we ever get
+        # control back if this is false — leaving nothing for us to copy from.
+        if config.get("convert-keep-original") is not True:
+            config["convert-keep-original"] = True
+            changed = True
         # limit-max=200 was the upstream default; with the new naming
         # scheme concatenating artist+album+track into one filename,
         # 200 per token could combine into a path segment longer than
@@ -409,6 +420,10 @@ def ensure_config_yaml():
     text = text.replace(
         'convert-after-download: false     # Enable post-download conversion (requires ffmpeg)',
         'convert-after-download: true      # Enable post-download conversion (requires ffmpeg)'
+    )
+    text = text.replace(
+        'convert-keep-original: false       # Keep original file after successful conversion',
+        'convert-keep-original: true        # Keep original file after successful conversion'
     )
     for key in folder_keys:
         text = text.replace(f'{key}: {old_defaults[key][0]}', f'{key}: {downloads_dir}')
