@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>AMRipper - Settings</title>
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='Logo.png') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
@@ -163,21 +163,14 @@
             </div>
         </div>
 
-        <!-- Download Folders -->
+        <!-- Download Folder -->
         <div class="settings-section">
-            <h4>Download Folders</h4>
+            <h4>Download Folder</h4>
             <div class="row">
-                <div class="col-md-4">
-                    <label for="alac-save-folder" class="form-label">ALAC Folder</label>
-                    <input type="text" class="form-control" id="alac-save-folder" placeholder="AM-DL downloads">
-                </div>
-                <div class="col-md-4">
-                    <label for="atmos-save-folder" class="form-label">Atmos Folder</label>
-                    <input type="text" class="form-control" id="atmos-save-folder" placeholder="AM-DL-Atmos downloads">
-                </div>
-                <div class="col-md-4">
-                    <label for="aac-save-folder" class="form-label">AAC Folder</label>
-                    <input type="text" class="form-control" id="aac-save-folder" placeholder="AM-DL-AAC downloads">
+                <div class="col-12">
+                    <label for="alac-save-folder" class="form-label">Save Location</label>
+                    <input type="text" class="form-control" id="alac-save-folder" placeholder="/path/to/downloads">
+                    <small class="text-muted">Everything downloads here — no more separate folders per format.</small>
                 </div>
             </div>
         </div>
@@ -186,16 +179,7 @@
         <div class="settings-section">
             <h4>Quality Settings</h4>
             <div class="row">
-                <div class="col-md-3">
-                    <label for="aac-type" class="form-label">AAC Type</label>
-                    <select class="form-select" id="aac-type">
-                        <option value="aac-lc">AAC-LC</option>
-                        <option value="aac">AAC</option>
-                        <option value="aac-binaural">AAC Binaural</option>
-                        <option value="aac-downmix">AAC Downmix</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
+                <div class="col-md-6">
                     <label for="alac-max" class="form-label">ALAC Max Quality</label>
                     <select class="form-select" id="alac-max">
                         <option value="192000">192 kHz</option>
@@ -204,16 +188,10 @@
                         <option value="44100">44.1 kHz</option>
                     </select>
                 </div>
-                <div class="col-md-3">
-                    <label for="atmos-max" class="form-label">Atmos Max Quality</label>
-                    <select class="form-select" id="atmos-max">
-                        <option value="2768">2768 kbps</option>
-                        <option value="2448">2448 kbps</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label for="limit-max" class="form-label">Download Limit</label>
-                    <input type="number" class="form-control" id="limit-max" min="1" max="1000" placeholder="200">
+                <div class="col-md-6">
+                    <label for="limit-max" class="form-label">Filename Length Limit</label>
+                    <input type="number" class="form-control" id="limit-max" min="1" max="200" placeholder="80">
+                    <small class="text-muted">Per-field character cap (artist/album/song name). Kept conservative since the naming format combines several fields — raising this too high risks exceeding your filesystem's filename length limit.</small>
                 </div>
             </div>
         </div>
@@ -485,7 +463,7 @@ function collectFormData() {
     
     // Define fields that should be integers
     const integerFields = new Set([
-        'alac-max', 'atmos-max', 'limit-max', 'max-memory-limit', 'mv-max'
+        'alac-max', 'limit-max', 'max-memory-limit', 'mv-max'
     ]);
     
     // Get all form elements
@@ -506,6 +484,16 @@ function collectFormData() {
             }
         }
     });
+
+    // The UI only exposes one "Download Folder" field (bound to
+    // alac-save-folder), but the underlying tool still has four separate
+    // save-folder keys. Keep them all in sync so everything really does
+    // land in the same place.
+    if (formData['alac-save-folder'] !== undefined) {
+        formData['atmos-save-folder'] = formData['alac-save-folder'];
+        formData['aac-save-folder'] = formData['alac-save-folder'];
+        formData['mv-save-folder'] = formData['alac-save-folder'];
+    }
     
     return formData;
 }

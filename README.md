@@ -29,6 +29,13 @@ All credit for the actual downloading capabilities goes to these original creato
 
 ## 🚀 Quick Start
 
+### Platform Support
+
+**Linux only, currently.** `main.py` shells out to distro package managers (apt/dnf/zypper/pacman), uses Unix-specific APIs (`os.geteuid()`, `:`-separated PATH, symlinks, process groups), and downloads Linux binaries for Bento4 and the wrapper — none of which work on Windows or macOS as-is.
+
+- **WSL (Windows Subsystem for Linux)** should work, since it's a real Linux environment underneath — this is effectively how it already gets used on Windows today.
+- **Native Windows or macOS support isn't implemented.** It's not a small change — the wrapper and Bento4 binaries would need Windows/macOS builds (the wrapper project does have some non-Linux options, but they're not wired into this setup script), and most of `main.py`'s setup logic would need platform branches. If you want AMRipper on native Windows, [nawf-dev/AM-DL](https://github.com/nawf-dev/AM-DL) is a separate, Windows-native tool built around the same wrapper backend. Contributions adding real native support here are welcome, but it's not something currently planned.
+
 ### Prerequisites
 
 - **Linux environment** (also works on WSL)

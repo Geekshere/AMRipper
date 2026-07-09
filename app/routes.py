@@ -733,7 +733,7 @@ def save_config():
         
         # Define fields that are folder paths and need Windows to WSL translation
         path_fields = {
-            'alac-save-folder', 'atmos-save-folder', 'aac-save-folder'
+            'alac-save-folder', 'atmos-save-folder', 'aac-save-folder', 'mv-save-folder'
         }
         
         def translate_path_to_wsl(path):
@@ -771,8 +771,21 @@ def save_config():
                 config_data[key] = translate_path_to_wsl(str(value))
             # Strings remain as strings (default)
         
+        # Merge into the existing config rather than overwriting it — the
+        # settings page intentionally only exposes a subset of config.yaml's
+        # fields (some are advanced/rarely touched, and mv-save-folder was
+        # never in the UI at all). A full overwrite would silently wipe
+        # anything not present in the submitted form data. Read first: the
+        # write-mode open below truncates the file immediately.
+        try:
+            with open(config_path, 'r', encoding='utf-8') as existing_file:
+                full_config = yaml.safe_load(existing_file) or {}
+        except Exception:
+            full_config = {}
+        full_config.update(config_data)
+
         with open(config_path, 'w', encoding='utf-8') as file:
-            yaml.dump(config_data, file, default_flow_style=False, allow_unicode=True)
+            yaml.dump(full_config, file, default_flow_style=False, allow_unicode=True)
             
         return jsonify({"status": "ok", "msg": "Configuration saved successfully"})
     except Exception as e:
@@ -802,21 +815,18 @@ def auto_login():
 
 @app.route("/get_download_folders")
 def get_download_folders():
-    """Get download folder paths from config with Windows to WSL path translation"""
+    """Get the unified download folder path from config"""
     try:
         script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         config_path = os.path.join(script_dir, "apple-music-downloader", "config.yaml")
         
         with open(config_path, 'r', encoding='utf-8') as file:
             config = yaml.safe_load(file)
-            
-        # Paths are now already in correct format in config file, no need to translate
-        folders = {
-            "alac": config.get("alac-save-folder", "AM-DL downloads"),
-            "atmos": config.get("atmos-save-folder", "AM-DL-Atmos downloads"),
-            "aac": config.get("aac-save-folder", "AM-DL-AAC downloads")
-        }
-        
-        return jsonify({"status": "ok", "folders": folders})
+
+        # All formats share one folder now — alac-save-folder is the
+        # representative value, but they're kept in sync by ensure_config_yaml().
+        folder = config.get("alac-save-folder", "downloads")
+
+        return jsonify({"status": "ok", "folder": folder})
     except Exception as e:
         return jsonify({"status": "error", "msg": str(e)})

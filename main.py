@@ -84,6 +84,41 @@ def install_system_packages():
               f"install git/ffmpeg/gpac/go manually if setup fails below.")
 
 
+SHIM_DIR = PROJECT_DIR / "bin_shims"
+
+
+def ensure_mp4box_on_path():
+    """The Go downloader shells out to the exact binary name "MP4Box"
+    (from the system gpac package) to embed tags. Some distro builds of
+    gpac install it under a different case (mp4box, Mp4Box) — since Linux
+    binary lookups are case-sensitive, that silently breaks tag embedding
+    entirely (writeMP4Tags() never even runs) with no obvious error tying
+    it back to this cause. If "MP4Box" isn't directly resolvable but a
+    different-case variant is, create a same-named symlink in our own
+    shim directory and put that on PATH."""
+    if shutil.which("MP4Box"):
+        return
+
+    for candidate in ("mp4box", "Mp4Box", "mp4Box"):
+        found = shutil.which(candidate)
+        if found:
+            SHIM_DIR.mkdir(parents=True, exist_ok=True)
+            shim_path = SHIM_DIR / "MP4Box"
+            try:
+                if not shim_path.exists():
+                    shim_path.symlink_to(found)
+                os.environ["PATH"] = f"{SHIM_DIR}:{os.environ['PATH']}"
+                print(f"NOTE: Found gpac's MP4Box installed as '{candidate}' — linked it to 'MP4Box' "
+                      f"so tag embedding (which calls it by that exact name) actually works.")
+            except Exception as e:
+                print(f"WARN: Found '{candidate}' but couldn't create the MP4Box shim ({e}). "
+                      "Tags will likely fail to embed until this is fixed manually.")
+            return
+
+    print("WARN: Could not find MP4Box (from the gpac package) anywhere on PATH under any casing. "
+          "Tag embedding will fail silently for every download until gpac is installed correctly.")
+
+
 def install_python_deps():
     """Install Python packages not reliably available via system package
     managers (e.g. mutagen, used for single-release tag cleanup). Best
@@ -145,6 +180,7 @@ def firstsetup():
         # Step 1: Install required packages (needs root)
         install_system_packages()
         install_python_deps()
+        ensure_mp4box_on_path()
 
         # Step 2: Download and set up Bento4
         BENTO4_URL = "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.x86_64-unknown-linux.zip"
@@ -258,53 +294,78 @@ def ensure_config_yaml():
     """The upstream apple-music-downloader repo only ships
     config.yaml.example — it never creates config.yaml itself, and the
     Go binary (and our settings page) both fail outright without one.
-    This copies the example over on first use, points download folders
-    at a single AMRipper/downloads/ location instead of scattering them
-    relative to apple-music-downloader/, and nudges convert-after-download
-    to a friendlier default. Safe to call every run: it's a no-op past
-    the initial setup, so it also self-heals installs that got stuck in
-    the old broken state (e.g. an existing 'firstrun' marker from before
+    This copies the example over on first use, points every download
+    folder at a single flat AMRipper/downloads/ location, sets a
+    friendlier naming scheme, and nudges convert-after-download to a
+    friendlier default. Safe to call every run: it's a no-op past the
+    initial setup, so it also self-heals installs that got stuck in an
+    old broken state (e.g. an existing 'firstrun' marker from before
     this fix, which would otherwise skip firstsetup() entirely)."""
     config_path = AMD_DIR / "config.yaml"
     example_path = AMD_DIR / "config.yaml.example"
     downloads_dir = PROJECT_DIR / "downloads"
 
-    folder_keys = {
-        "alac-save-folder": "ALAC",
-        "atmos-save-folder": "Atmos",
-        "aac-save-folder": "AAC",
-        "mv-save-folder": "MV",
-    }
+    folder_keys = ["alac-save-folder", "atmos-save-folder", "aac-save-folder", "mv-save-folder"]
+    # Values we consider "still at a default we introduced or upstream
+    # shipped" and therefore safe to migrate without clobbering a real
+    # customization. Includes the original upstream per-format relative
+    # folders AND the per-format downloads/<Format> subfolders an earlier
+    # version of this script generated, since real installs may have
+    # either depending on when they were first set up.
     old_defaults = {
-        "alac-save-folder": "AM-DL downloads",
-        "atmos-save-folder": "AM-DL-Atmos downloads",
-        "aac-save-folder": "AM-DL-AAC downloads",
-        "mv-save-folder": "AM-DL-MV downloads",
+        "alac-save-folder": ["AM-DL downloads", str(downloads_dir / "ALAC")],
+        "atmos-save-folder": ["AM-DL-Atmos downloads", str(downloads_dir / "Atmos")],
+        "aac-save-folder": ["AM-DL-AAC downloads", str(downloads_dir / "AAC")],
+        "mv-save-folder": ["AM-DL-MV downloads", str(downloads_dir / "MV")],
+    }
+    naming_defaults = {
+        "album-folder-format": '{AlbumName}',
+        # {AlbumName} isn't a supported token in song-file-format upstream
+        # (only SongId/SongNumer/ArtistName/SongName/DiscNumber/
+        # TrackNumber/Quality/Tag/Codec are) — this is the closest match
+        # to "artist - album - track number - track name" without it,
+        # since the album name is already the parent folder anyway.
+        "song-file-format": '{SongNumer}. {SongName}',
+    }
+    naming_new_values = {
+        "album-folder-format": '{ArtistName} - {AlbumName} ({ReleaseYear})',
+        "song-file-format": '{ArtistName} - {TrackNumber} - {SongName}',
     }
 
     if config_path.exists():
-        # Existing install (e.g. from before this fix) — migrate download
-        # folders to the unified location, but only the ones still at
-        # the upstream default, so we don't clobber a custom path.
+        # Existing install (e.g. from before this fix) — migrate fields
+        # still at a known default, leaving any real customization alone.
         try:
             import yaml
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f) or {}
         except Exception as e:
-            print(f"WARN: Could not check config.yaml for folder migration ({e}). Skipping.")
+            print(f"WARN: Could not check config.yaml for migration ({e}). Skipping.")
             return
 
         changed = False
-        for key, subdir in folder_keys.items():
-            if config.get(key, "") == old_defaults[key]:
-                config[key] = str(downloads_dir / subdir)
+        for key in folder_keys:
+            if config.get(key, "") in old_defaults[key]:
+                config[key] = str(downloads_dir)
                 changed = True
+        for key, old_val in naming_defaults.items():
+            if config.get(key, "") == old_val:
+                config[key] = naming_new_values[key]
+                changed = True
+        # limit-max=200 was the upstream default; with the new naming
+        # scheme concatenating artist+album+track into one filename,
+        # 200 per token could combine into a path segment longer than
+        # ext4's 255-byte filename limit. Only touch it if still default.
+        if config.get("limit-max") == 200:
+            config["limit-max"] = 80
+            changed = True
 
         if changed:
             downloads_dir.mkdir(parents=True, exist_ok=True)
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-            print(f"Migrated download folders to {downloads_dir}")
+            print(f"Migrated config: all downloads now save to {downloads_dir}, "
+                  "naming updated to 'Artist - Album (Year)' / 'Artist - Track# - Song'.")
         return
 
     if not example_path.exists():
@@ -312,16 +373,19 @@ def ensure_config_yaml():
 
     shutil.copy(example_path, config_path)
 
-    # Nudge a couple of defaults to be more useful out of the box.
-    # Line-based replace (not a yaml load/dump) so we don't strip the
-    # example's helpful inline comments on a brand-new config.
+    # Nudge defaults to be more useful out of the box. Line-based replace
+    # (not a yaml load/dump) so we don't strip the example's helpful
+    # inline comments on a brand-new config.
     text = config_path.read_text()
     text = text.replace(
         'convert-after-download: false     # Enable post-download conversion (requires ffmpeg)',
         'convert-after-download: true      # Enable post-download conversion (requires ffmpeg)'
     )
-    for key, old_val in old_defaults.items():
-        text = text.replace(f'{key}: {old_val}', f'{key}: {downloads_dir / folder_keys[key]}')
+    for key in folder_keys:
+        text = text.replace(f'{key}: {old_defaults[key][0]}', f'{key}: {downloads_dir}')
+    for key, old_val in naming_defaults.items():
+        text = text.replace(f'{key}: "{old_val}"', f'{key}: "{naming_new_values[key]}"')
+    text = text.replace('limit-max: 200', 'limit-max: 80')
     config_path.write_text(text)
     downloads_dir.mkdir(parents=True, exist_ok=True)
     print(f"Created {config_path} from config.yaml.example. Downloads will save to {downloads_dir} "
@@ -340,8 +404,11 @@ def start():
     os.environ["PATH"] = f"{WRAPPER_DIR}:{os.environ['PATH']}"
 
     # Self-heal installs that reached this point without a config.yaml
-    # (e.g. the 'firstrun' marker already existed from before this fix).
+    # (e.g. the 'firstrun' marker already existed from before this fix),
+    # and re-check the MP4Box shim every run in case gpac was reinstalled
+    # or the shim directory got cleaned up.
     ensure_config_yaml()
+    ensure_mp4box_on_path()
 
     # Open the web UI automatically once Flask is actually listening,
     # instead of leaving the user to go find the URL themselves.
