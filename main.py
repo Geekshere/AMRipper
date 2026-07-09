@@ -1,5 +1,6 @@
 import os
 import subprocess
+import shutil
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -10,6 +11,75 @@ BENTO4_DIR = PROJECT_DIR / "bento4"
 WRAPPER_DIR = PROJECT_DIR / "wrapper"
 AMD_DIR = PROJECT_DIR / "apple-music-downloader"
 
+# Package names for the same set of dependencies differ across distros.
+# "go" is intentionally left as a separate go.dev install fallback on
+# distros whose repo Go version can be too old for this project's go.mod.
+PACKAGE_MANAGERS = {
+    "apt-get": {
+        "check_cmd": ["dpkg", "-s"],
+        "install_cmd": ["apt-get", "install", "-y"],
+        "update_cmd": ["apt-get", "update"],
+        "packages": ["git", "ffmpeg", "gpac", "golang-go", "wget", "python3-flask", "python3-yaml"],
+    },
+    "dnf": {
+        "check_cmd": ["rpm", "-q"],
+        "install_cmd": ["dnf", "install", "-y"],
+        "update_cmd": None,
+        "packages": ["git", "ffmpeg", "gpac", "golang", "wget", "python3-flask", "python3-pyyaml"],
+    },
+    "zypper": {
+        "check_cmd": ["rpm", "-q"],
+        "install_cmd": ["zypper", "--non-interactive", "install"],
+        "update_cmd": None,
+        "packages": ["git", "ffmpeg", "gpac", "go", "wget", "python3-Flask", "python3-PyYAML"],
+    },
+    "pacman": {
+        "check_cmd": ["pacman", "-Q"],
+        "install_cmd": ["pacman", "-S", "--noconfirm"],
+        "update_cmd": None,
+        "packages": ["git", "ffmpeg", "gpac", "go", "wget", "python-flask", "python-yaml"],
+    },
+}
+
+
+def detect_package_manager():
+    """Return the name of the first available package manager, or None."""
+    for name in PACKAGE_MANAGERS:
+        if shutil.which(name):
+            return name
+    return None
+
+
+def install_system_packages():
+    """Install required system packages using whatever package manager
+    is available on this distro. Only this step needs root; everything
+    else in firstsetup() runs as the invoking user."""
+    pm_name = detect_package_manager()
+    if pm_name is None:
+        print("WARN: No supported package manager found (looked for apt-get, dnf, zypper, pacman). "
+              "Skipping package install — make sure git, ffmpeg, gpac (MP4Box), wget, go, "
+              "python3-flask, and python3-yaml/pyyaml are installed manually.")
+        return
+
+    pm = PACKAGE_MANAGERS[pm_name]
+    sudo_prefix = [] if os.geteuid() == 0 else ["sudo"]
+    print(f"Detected package manager: {pm_name}")
+
+    if pm["update_cmd"]:
+        try:
+            subprocess.run(sudo_prefix + pm["update_cmd"], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"WARN: Package index update failed ({e}). Continuing anyway.")
+
+    try:
+        subprocess.run(sudo_prefix + pm["install_cmd"] + pm["packages"], check=True)
+        print("Packages installed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"WARN: Package install failed ({e}). Some packages in {pm['packages']} "
+              f"may not exist under those exact names on your distro/repo config — "
+              f"install git/ffmpeg/gpac/go manually if setup fails below.")
+
+
 def firstsetup():
     # --- Only escalate for the actual package install step ---
     # Everything else (downloads, extraction, git clone) runs as the
@@ -18,19 +88,7 @@ def firstsetup():
     # with "permission denied" after the first run.
     try:
         # Step 1: Install required packages (needs root)
-        if os.geteuid() == 0:
-            pkg_cmd = ["apt-get", "install", "-y", "git", "ffmpeg", "gpac", "golang-go", "wget", "python3-flask", "python3-yaml"]
-        else:
-            pkg_cmd = ["sudo", "apt-get", "install", "-y", "git", "ffmpeg", "gpac", "golang-go", "wget", "python3-flask", "python3-yaml"]
-
-        try:
-            subprocess.run(pkg_cmd, check=True)
-            print("Packages installed successfully.")
-        except FileNotFoundError:
-            print("WARN: apt-get not found (non-Debian system). Skipping package install — "
-                  "make sure git, ffmpeg, gpac (MP4Box), and go are installed manually.")
-        except subprocess.CalledProcessError as e:
-            print(f"WARN: Package install failed ({e}). Continuing — install git/ffmpeg/gpac/go manually if setup fails below.")
+        install_system_packages()
 
         # Step 2: Download and set up Bento4
         BENTO4_URL = "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.x86_64-unknown-linux.zip"
