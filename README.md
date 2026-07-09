@@ -17,7 +17,7 @@ All credit for the actual downloading capabilities goes to these original creato
 
 - Clean, modern web UI accessible from any browser
 - Save credentials for automatic login on startup
-- ALAC (lossless) downloads, converted to FLAC automatically after downloading
+- ALAC (lossless) only, converted to FLAC automatically after downloading. No AAC or Atmos options, by design: AAC needs a valid media-user-token to work at all, and almost nothing on Apple Music actually has an Atmos mix, so keeping this to one format keeps the whole thing simpler.
 - Full metadata tagging on every download: title, artist, album, track/disc numbers, composer, genre, lyrics, and cover art
 - Strips the trailing "- Single" that Apple appends to single-track releases, in both the folder name and the album tag
 - Live log streaming without debug spam or raw terminal escape codes cluttering the view
@@ -99,6 +99,10 @@ By default, albums are saved as `Artist Name - Album Name (Year)`, and tracks in
 ### Settings
 
 The settings page is split into what you'll actually want to touch (your media-user-token, storefront, download folder, and conversion settings) and an Advanced section for everything else: file naming templates, tag formatting, and low-level connection settings that most people never need to change.
+
+## Found a Bug or Want a Feature?
+
+Please [open an issue](https://github.com/Geekshere/AMRipper/issues) on GitHub. Include what you were doing, what you expected, and what actually happened (the downloader/wrapper log output is usually the most useful part to include).
 
 ## Disclaimer
 

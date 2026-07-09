@@ -95,28 +95,51 @@ def ensure_mp4box_on_path():
     entirely (writeMP4Tags() never even runs) with no obvious error tying
     it back to this cause. If "MP4Box" isn't directly resolvable but a
     different-case variant is, create a same-named symlink in our own
-    shim directory and put that on PATH."""
-    if shutil.which("MP4Box"):
+    shim directory and put that on PATH. Either way, actually runs it
+    afterward to confirm it works — existing under some name on PATH
+    doesn't guarantee it executes (missing shared libs, a gpac package
+    variant without the CLI tool, wrong architecture, etc.)."""
+    resolved = shutil.which("MP4Box")
+
+    if not resolved:
+        for candidate in ("mp4box", "Mp4Box", "mp4Box"):
+            found = shutil.which(candidate)
+            if found:
+                SHIM_DIR.mkdir(parents=True, exist_ok=True)
+                shim_path = SHIM_DIR / "MP4Box"
+                try:
+                    if not shim_path.exists():
+                        shim_path.symlink_to(found)
+                    os.environ["PATH"] = f"{SHIM_DIR}:{os.environ['PATH']}"
+                    print(f"NOTE: Found gpac's MP4Box installed as '{candidate}'. Linked it to 'MP4Box' "
+                          f"so tag embedding (which calls it by that exact name) actually works.")
+                    resolved = str(shim_path)
+                except Exception as e:
+                    print(f"WARN: Found '{candidate}' but couldn't create the MP4Box shim ({e}). "
+                          "Tags will likely fail to embed until this is fixed manually.")
+                break
+
+    if not resolved:
+        print("WARN: Could not find MP4Box (from the gpac package) anywhere on PATH under any casing. "
+              "Tag embedding will fail silently for every download until gpac is installed correctly.")
         return
 
-    for candidate in ("mp4box", "Mp4Box", "mp4Box"):
-        found = shutil.which(candidate)
-        if found:
-            SHIM_DIR.mkdir(parents=True, exist_ok=True)
-            shim_path = SHIM_DIR / "MP4Box"
-            try:
-                if not shim_path.exists():
-                    shim_path.symlink_to(found)
-                os.environ["PATH"] = f"{SHIM_DIR}:{os.environ['PATH']}"
-                print(f"NOTE: Found gpac's MP4Box installed as '{candidate}' — linked it to 'MP4Box' "
-                      f"so tag embedding (which calls it by that exact name) actually works.")
-            except Exception as e:
-                print(f"WARN: Found '{candidate}' but couldn't create the MP4Box shim ({e}). "
-                      "Tags will likely fail to embed until this is fixed manually.")
-            return
+    try:
+        result = subprocess.run(["MP4Box", "-version"], capture_output=True, timeout=5, text=True)
+        if result.returncode == 0:
+            first_line = (result.stdout or result.stderr or "").strip().splitlines()[0] if (result.stdout or result.stderr) else ""
+            print(f"MP4Box found and runs correctly ({first_line}). Tag embedding should work.")
+        else:
+            print(f"WARN: MP4Box was found at {resolved} but running it failed "
+                  f"(exit code {result.returncode}): {result.stderr.strip()[:300]}. "
+                  "This is very likely why tags aren't being embedded — probably a broken or "
+                  "incomplete gpac install. Try reinstalling the gpac package.")
+    except FileNotFoundError:
+        print(f"WARN: MP4Box resolved to {resolved} but couldn't actually be executed. "
+              "This is very likely why tags aren't being embedded.")
+    except Exception as e:
+        print(f"WARN: Could not verify MP4Box runs correctly ({e}).")
 
-    print("WARN: Could not find MP4Box (from the gpac package) anywhere on PATH under any casing. "
-          "Tag embedding will fail silently for every download until gpac is installed correctly.")
 
 
 def install_python_deps():
