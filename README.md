@@ -1,119 +1,95 @@
-# AMRipper
+# AMRipper 🎵
 
-A simple web interface for downloading your favorite tracks from Apple Music, no command line needed.
+A simple web interface for downloading your favorite tracks from Apple Music. No command line needed once it's set up.
+
+---
 
 ## About
 
-AMRipper started as a fork of [lalit22km/alac-rip](https://github.com/lalit22km/alac-rip) and has since grown into its own standalone project: fixed up, hardened, and simplified. It's a humble web interface wrapper built around the work of other developers in the Apple Music downloading community, giving you a clean, browser-based way to interact with the powerful Apple Music Downloader tools instead of typing commands. All credit for the actual downloading capabilities goes to the original creators listed in Acknowledgments below; AMRipper is a convenience layer and bugfix pass on top of their tools.
+AMRipper started as a fork of [lalit22km/alac-rip](https://github.com/lalit22km/alac-rip) and has since grown into its own standalone project: fixed up, hardened, and simplified. It's a browser-based front end for the excellent tools built by others in the Apple Music downloading community. All credit for the actual downloading capabilities goes to the original creators listed in [Acknowledgments](#acknowledgments); AMRipper is a convenience layer and bugfix pass on top of their work.
 
 ## Features
 
-- Clean, modern web UI accessible from any browser
-- Save credentials for automatic login on startup
-- ALAC (lossless) only, converted to FLAC automatically after downloading. No AAC or Atmos options, by design: AAC needs a valid media-user-token to work at all, and almost nothing on Apple Music actually has an Atmos mix, so keeping this to one format keeps the whole thing simpler.
-- Full metadata tagging on every download: title, artist, album, track/disc numbers, composer, genre, lyrics, and cover art
-- Strips the trailing "- Single" that Apple appends to single-track releases, in both the folder name and the album tag
-- Live log streaming without debug spam or raw terminal escape codes cluttering the view
-- Works across distros: detects and uses whichever of apt, dnf, zypper, or pacman is available
-- Only the one-time system package install needs elevated privileges; everything else runs as your own user, so downloaded files aren't left root-owned
-- Artist URLs automatically grab the full discography and organize it into an artist folder, instead of hanging on a terminal prompt the web server can't answer
-- A settings page for the options you'd actually want to change, with the rarely-touched ones tucked away in an Advanced section
+- 🌐 Clean, modern web UI, no command line needed day to day
+- 🔐 Save credentials for automatic login on startup
+- 🎧 ALAC (lossless), converted to FLAC automatically, fully tagged (title, artist, album, track/disc numbers, composer, genre, lyrics, cover art)
+- 📁 Artist URLs grab the full discography automatically and organize it into an artist folder
+- 🧹 Strips the trailing "- Single" Apple adds to single-track releases
+- 🐧 Works across distros (apt, dnf, zypper, pacman), no full root access needed
+- ⚙️ A settings page with the essentials up front and everything else tucked into Advanced
 
 ## Platform Support
 
-Linux only, for now. `main.py` shells out to distro package managers, uses Unix-specific APIs, and downloads Linux binaries for Bento4 and the wrapper, none of which work on Windows or macOS as they are.
-
-WSL (Windows Subsystem for Linux) should work fine, since it's a real Linux environment underneath. That's effectively how this already gets used on Windows today.
-
-Native Windows or macOS support isn't implemented, and it's not a small change: the wrapper and Bento4 binaries would need Windows/macOS builds, and most of `main.py`'s setup logic would need platform-specific branches. If you want something similar on native Windows, [nawf-dev/AM-DL](https://github.com/nawf-dev/AM-DL) is a separate tool built around the same wrapper backend. Contributions adding real native support here are welcome, but it isn't something currently planned.
+**Linux only, for now** (WSL works fine too, since it's real Linux underneath). Native Windows/macOS support isn't implemented and would take real work. See [nawf-dev/AM-DL](https://github.com/nawf-dev/AM-DL) if you want something similar on native Windows.
 
 ## Quick Start
 
 ### Prerequisites
 
-You need Python 3 and sudo access on a Linux machine (or WSL). That's really it; the setup script installs everything else (git, ffmpeg, gpac, Go) for you automatically.
+You need Python 3 and sudo access on a Linux machine. That's it: the setup script installs everything else (git, ffmpeg, gpac, Go) automatically.
 
-If you're not sure whether you have Python 3, open a terminal and run:
+Check if you have Python 3:
 
 ```bash
 python3 --version
 ```
 
-If that prints a version number, you're set. If it says "command not found," install Python first:
+No version number? Install it first:
 
-- **Ubuntu/Debian:** `sudo apt install python3`
-- **Fedora:** `sudo dnf install python3`
-- **openSUSE:** `sudo zypper install python3`
-- **Arch:** `sudo pacman -S python`
+| Distro | Command |
+|---|---|
+| Ubuntu/Debian | `sudo apt install python3` |
+| Fedora | `sudo dnf install python3` |
+| openSUSE | `sudo zypper install python3` |
+| Arch | `sudo pacman -S python` |
 
-You'll also need `git` to clone this repository in the first place. If `git --version` doesn't work, install it the same way (swap `python3` for `git` in the commands above).
+You'll also need `git` to clone this repo. Same idea if `git --version` comes up empty.
 
 ### Installation
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/Geekshere/AMRipper.git
-   cd AMRipper
-   ```
+```bash
+git clone https://github.com/Geekshere/AMRipper.git
+cd AMRipper
+python3 main.py
+```
 
-2. Run the setup:
-   ```bash
-   python3 main.py
-   ```
-
-   You do not need to run this as root or with `sudo`. The first run will automatically:
-   - Detect your distro's package manager and install the required system packages, asking for your `sudo` password only for that one step
-   - Download and set up Bento4
-   - Download the wrapper tool
-   - Clone the Apple Music Downloader
-   - Install Python dependencies
-
-3. Your browser will open automatically to `http://localhost:5000` once the server is ready. If it doesn't, just open that address yourself.
+That one command does everything: installs dependencies (asking for your `sudo` password just once, for that step), sets up the downloader tools, and launches the web UI, which opens automatically in your browser at `http://localhost:5000`. No need to run it more than once; the same command starts it again on future launches too.
 
 ## Usage
 
-### First Time Setup
-
-1. Click "Login to Wrapper" and enter your iCloud email and password. This is your Apple ID; it's sent directly to the wrapper running on your own machine, nowhere else.
-2. Watch the wrapper logs until you see a login-success message.
-3. Click Settings if you want to change anything, most importantly your storefront (defaults to "us") and your media-user-token if you want lyrics.
-4. Paste an Apple Music URL and click Download. Artist URLs automatically grab the full discography.
+1. Click **Login to Wrapper** and enter your iCloud email and password. This goes straight to the wrapper running on your own machine, nowhere else.
+2. Once you see a login-success message in the logs, head to **Settings** if you want to change anything, most importantly your storefront (defaults to `us`) and your media-user-token if you want lyrics.
+3. Paste an Apple Music URL and hit **Download**. Artist URLs grab the full discography automatically.
 
 ### Tagging
 
-Every downloaded track gets tagged automatically: title, artist, album, album artist, track/disc numbers, composer, genre, ISRC, release date, copyright, and cover art. The underlying downloader writes these tags to the ALAC file itself, but its own conversion step to FLAC doesn't reliably carry that metadata over, so AMRipper handles the ALAC-to-FLAC conversion itself instead, copies the tags across directly, and then removes the original ALAC file. After each download finishes, AMRipper reads the tags back off the final file and reports what it found in the downloader log, so you can see directly whether tagging worked without needing a separate tool.
+Every track gets tagged automatically. The downloader tags the ALAC file directly, then AMRipper handles the conversion to FLAC itself (rather than trusting the underlying tool's own conversion, which doesn't reliably carry tags over), copies the tags across, and reports what it found right in the downloader log, so you can see tagging worked without needing a separate tool.
 
-If you'd rather keep the original ALAC (.m4a) file alongside the FLAC, or skip conversion entirely and keep ALAC only, both are toggles in Settings.
-
-Single-track releases also have the trailing "- Single" suffix Apple adds stripped from both the folder name and the album tag.
+Want to keep the original ALAC file too, or skip conversion entirely? Both are toggles in Settings.
 
 ### File Naming
 
-By default, albums are saved as `Artist Name - Album Name (Year)`, and tracks inside as `Track# - Song Name`. Both can be changed on the Settings page under Advanced.
-
-### Settings
-
-The settings page is split into what you'll actually want to touch (your media-user-token, storefront, download folder, and conversion settings) and an Advanced section for everything else: file naming templates, tag formatting, and low-level connection settings that most people never need to change.
+Albums save as `Artist Name - Album Name (Year)`, tracks as `Track# - Song Name`. Changeable in Settings under Advanced.
 
 ## Found a Bug or Want a Feature?
 
-Please [open an issue](https://github.com/Geekshere/AMRipper/issues) on GitHub. Include what you were doing, what you expected, and what actually happened (the downloader/wrapper log output is usually the most useful part to include).
+Please [open an issue](https://github.com/Geekshere/AMRipper/issues) with what you were doing, what you expected, and what happened instead. The downloader/wrapper log output is usually the most useful thing to include.
 
 ## Disclaimer
 
-This tool is for educational purposes and personal use only. Please respect Apple's Terms of Service and only download content you have the legal right to access. The developers of this UI wrapper are not responsible for any misuse of the underlying downloading tools.
+For educational purposes and personal use only. Please respect Apple's Terms of Service and only download content you have the legal right to access.
 
-**Security note:** the setup script only requests elevated (`sudo`) privileges for the one-time system package install step. Please review the code before running it.
+**Security note:** the setup script only asks for elevated (`sudo`) privileges for the one-time system package install. Please review the code before running it.
 
 ## Acknowledgments
 
 Massive thanks to:
 
-- **[@lalit22km](https://github.com/lalit22km)** for the original [alac-rip](https://github.com/lalit22km/alac-rip) project this is based on
-- **[@zhaarey](https://github.com/zhaarey)** for creating the [apple-music-downloader](https://github.com/zhaarey/apple-music-downloader) that makes this possible
-- **[WorldObservationLog](https://github.com/WorldObservationLog)** for maintaining the authentication [wrapper](https://github.com/WorldObservationLog/wrapper)
+- **[@lalit22km](https://github.com/lalit22km)** for the original [alac-rip](https://github.com/lalit22km/alac-rip) this is based on
+- **[@zhaarey](https://github.com/zhaarey)** for [apple-music-downloader](https://github.com/zhaarey/apple-music-downloader), which does all the actual downloading
+- **[WorldObservationLog](https://github.com/WorldObservationLog)** for the authentication [wrapper](https://github.com/WorldObservationLog/wrapper)
 - The entire Apple Music downloading community for their research and tools
 
 ## Development Notes
 
-Some of the Python/Flask code in this repo (the setup script and web UI, not the underlying downloader or wrapper tools) was written with AI coding assistance. Every change was reviewed and tested by hand before being merged. AI assistance was used for writing and iterating on code, not as a substitute for actually running it.
+Some of the Python/Flask code here (the setup script and web UI, not the underlying downloader or wrapper tools) was written with AI coding assistance. Every change was reviewed and tested by hand before merging.
