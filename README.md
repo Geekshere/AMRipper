@@ -4,14 +4,7 @@ A simple web interface for downloading your favorite tracks from Apple Music, no
 
 ## About
 
-AMRipper started as a fork of [lalit22km/alac-rip](https://github.com/lalit22km/alac-rip) and has since grown into its own standalone project: fixed up, hardened, and simplified. It's a humble web interface wrapper built around the work of other developers in the Apple Music downloading community. It gives you a clean, browser-based way to interact with the powerful Apple Music Downloader tools instead of typing commands.
-
-**This project would not exist without the work of:**
-- **[lalit22km/alac-rip](https://github.com/lalit22km/alac-rip)**, the original project this UI is based on
-- **[zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)**, the core Go-based Apple Music downloader that does all the actual downloading
-- **[WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)**, the authentication wrapper that handles Apple Music login and session management
-
-All credit for the actual downloading capabilities goes to these original creators. AMRipper is a convenience layer and bugfix pass on top of their tools.
+AMRipper started as a fork of [lalit22km/alac-rip](https://github.com/lalit22km/alac-rip) and has since grown into its own standalone project: fixed up, hardened, and simplified. It's a humble web interface wrapper built around the work of other developers in the Apple Music downloading community, giving you a clean, browser-based way to interact with the powerful Apple Music Downloader tools instead of typing commands. All credit for the actual downloading capabilities goes to the original creators listed in Acknowledgments below; AMRipper is a convenience layer and bugfix pass on top of their tools.
 
 ## Features
 

@@ -516,7 +516,6 @@ def stream_download_logs(pipe, target_list):
                 exit_code = download_process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 exit_code = download_process.poll()
-        target_list.append(f"DEBUG: download subprocess finished, exit_code={exit_code}")
 
         if download_process and exit_code is not None:
             script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
