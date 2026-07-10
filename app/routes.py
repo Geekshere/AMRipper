@@ -40,7 +40,19 @@ def strip_ansi(text):
 # " - Single" (sometimes " - EP" too). This strips that suffix from both
 # the download folder name and the embedded album tag after a successful
 # download, so libraries don't end up full of "Song Name - Single" folders.
-SINGLE_SUFFIX_RE = re.compile(r'\s*-\s*(Single|EP)\s*$', re.IGNORECASE)
+SINGLE_SUFFIX_RE = re.compile(r'\s*-\s*(?:Single|EP)\s*(\(\d{4}\))?\s*$', re.IGNORECASE)
+
+
+def strip_single_suffix(name):
+    """Strip Apple's trailing '- Single'/'- EP' from an album name or
+    folder name. Folder names look like 'Artist - Album - Single (Year)'
+    (the '(Year)' comes from our own album-folder-format), while raw
+    tag values look like 'Album - Single' with no year — this handles
+    both, re-attaching the year with a single space if it was there."""
+    def repl(m):
+        year = m.group(1)
+        return f' {year}' if year else ''
+    return SINGLE_SUFFIX_RE.sub(repl, name).strip()
 
 
 def _get_save_folders(amd_dir):
@@ -76,7 +88,7 @@ def clean_single_release_names(amd_dir, log_target=None):
                     continue
 
                 old_path = Path(dirpath) / dirname
-                new_name = SINGLE_SUFFIX_RE.sub('', dirname).strip()
+                new_name = strip_single_suffix(dirname)
                 if not new_name:
                     continue
                 new_path = Path(dirpath) / new_name
@@ -86,7 +98,7 @@ def clean_single_release_names(amd_dir, log_target=None):
                         try:
                             tags = MP4(audio_file)
                             if "\xa9alb" in tags:
-                                tags["\xa9alb"] = [SINGLE_SUFFIX_RE.sub('', tags["\xa9alb"][0]).strip()]
+                                tags["\xa9alb"] = [strip_single_suffix(tags["\xa9alb"][0])]
                                 tags.save()
                         except Exception as e:
                             if log_target is not None:
@@ -95,7 +107,7 @@ def clean_single_release_names(amd_dir, log_target=None):
                         try:
                             tags = FLAC(audio_file)
                             if "album" in tags:
-                                tags["album"] = [SINGLE_SUFFIX_RE.sub('', tags["album"][0]).strip()]
+                                tags["album"] = [strip_single_suffix(tags["album"][0])]
                                 tags.save()
                         except Exception as e:
                             if log_target is not None:
