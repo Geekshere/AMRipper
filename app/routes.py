@@ -502,9 +502,23 @@ def stream_download_logs(pipe, target_list):
     except Exception as e:
         target_list.append(f"Error reading download logs: {str(e)}")
     finally:
-        # Check if process ended
-        if download_process and download_process.poll() is not None:
-            exit_code = download_process.poll()
+        # By the time we're here, the readline loop already exhausted —
+        # meaning the subprocess's stdout closed, which happens at or
+        # before process exit. wait() (not poll()) is used deliberately:
+        # it blocks until the process is actually reaped and always
+        # returns a real exit code, rather than racing a poll() call
+        # that could return None if the process hasn't been reaped yet
+        # even though its stdout already closed. Short timeout as a
+        # safety net in case something genuinely unexpected is going on.
+        exit_code = None
+        if download_process:
+            try:
+                exit_code = download_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                exit_code = download_process.poll()
+        target_list.append(f"DEBUG: download subprocess finished, exit_code={exit_code}")
+
+        if download_process and exit_code is not None:
             script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             amd_dir = os.path.join(script_dir, "apple-music-downloader")
 
