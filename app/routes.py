@@ -504,12 +504,23 @@ download_running = False
 def stream_download_logs(pipe, target_list):
     """Thread target to read logs from download process and store them."""
     global download_running, download_process
-    
+    token_warning_shown = False
+
     try:
         for line in iter(pipe.readline, ''):
             line = strip_ansi(line).strip()
             if line:
                 target_list.append(line)
+                if not token_warning_shown and "invalid media-user-token" in line.lower():
+                    token_warning_shown = True
+                    target_list.append(
+                        "NOTE: AAC-LC downloads need a valid media-user-token (Settings -> Media User "
+                        "Token). If you've already set one, it may have expired — these are tied to a "
+                        "browser session and need refreshing periodically from music.apple.com's "
+                        "DevTools. This can also happen if the whole album shows as 'Unavailable' "
+                        "before falling back to AAC — check your storefront in Settings matches your "
+                        "account's actual region."
+                    )
 
     except Exception as e:
         target_list.append(f"Error reading download logs: {str(e)}")
@@ -703,6 +714,12 @@ def start_wrapper_login(email, password, auto_login=False):
             stdin=subprocess.PIPE,
             bufsize=1,
             universal_newlines=True,
+            errors="replace",  # the wrapper binary (Bionic libc-based) can
+                                # emit non-UTF-8 bytes; without this, one
+                                # malformed byte raises UnicodeDecodeError
+                                # and silently kills the read loop for the
+                                # rest of the session — everything the
+                                # wrapper prints afterward goes unseen.
             cwd=wrapper_dir,  # Run from wrapper directory
             env=SUBPROCESS_ENV
         )
@@ -808,6 +825,23 @@ def download():
     # Determine the command to run
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     amd_dir = os.path.join(script_dir, "apple-music-downloader")
+
+    # Even in AMRipper's ALAC-only flow, the underlying tool falls back to
+    # AAC-LC on its own whenever a track reports unavailable in ALAC —
+    # and that fallback needs a real media-user-token. Warn upfront rather
+    # than letting every track in an album fail silently before anyone
+    # realizes why.
+    try:
+        amd_config = _read_amd_config(amd_dir)
+        token = (amd_config.get("media-user-token") or "").strip()
+        if not token or token == "your-media-user-token":
+            downloader_logs.append(
+                "NOTE: No media-user-token set (Settings -> Media User Token). Most tracks download "
+                "fine without one, but if any track isn't available in ALAC, the automatic AAC-LC "
+                "fallback will fail without a valid token."
+            )
+    except Exception:
+        pass
     
     # Artist URLs make the downloader list every album and prompt on stdin
     # for a selection ("comma-separated / range / 'all'"). Since this
@@ -849,6 +883,10 @@ def download():
             stdin=subprocess.DEVNULL,
             bufsize=1,
             universal_newlines=True,
+            errors="replace",  # same reasoning as the wrapper subprocess —
+                                # don't let one malformed byte (e.g. from an
+                                # unusual track/artist name encoding) kill
+                                # the read loop for the rest of the download
             cwd=amd_dir,  # Run from apple-music-downloader directory
             env=SUBPROCESS_ENV,
             start_new_session=True  # own process group, so cancel can kill

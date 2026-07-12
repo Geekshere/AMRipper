@@ -290,6 +290,8 @@ function updateLogs() {
             downloaderBox.innerHTML = res.data.downloader.map(l => {
                 if (l.toLowerCase().includes("completed successfully")) {
                     return `<div class="log-ok">> ${l}</div>`;
+                } else if (l.toLowerCase().startsWith("note:")) {
+                    return `<div class="log-info" style="font-weight: 600;">> ${l}</div>`;
                 } else if (l.toLowerCase().includes("failed") || l.toLowerCase().includes("error")) {
                     return `<div class="log-err">> ${l}</div>`;
                 } else if (l.toLowerCase().includes("starting")) {
